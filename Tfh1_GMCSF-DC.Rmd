@@ -1,0 +1,382 @@
+---
+title: "GMCSF_reanalysis"
+author: "Melissa"
+date: "28/07/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Functions:
+```{r}
+vln=function(SeuratObject, Genes, Reference){
+  p <-VlnPlot(SeuratObject, Genes, pt.size = 0, combine = F , group.by = "celltype")
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] +NoLegend()+
+  stat_summary(fun= median, geom='point', size = 5, colour = "black", shape = 95) +
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = Reference)}
+   res=cowplot::plot_grid(plotlist = p, ncol = 3)
+  return(res)
+}
+```
+
+```{r}
+preprocess= function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "mvp", nfeatures = 3000)
+    x= ScaleData(x)
+    x= RunPCA(x)
+     x <- FindNeighbors(x, dims = 1:20)
+    x <- FindClusters(x, resolution = 0.4, dims=1:20)
+   x<- RunUMAP(x, dims = 1:20)
+    }
+```
+
+```{r}
+library(Seurat)
+seur= Read10X("/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/GMCSF/")
+seurd=CreateSeuratObject(seur,  min.genes = 100, project = "GMCSF")
+seurd[["percent.mito"]] <- PercentageFeatureSet(seurd, pattern = "^MT-")
+VlnPlot(seurd, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+## low.thresholds = c(20000, -Inf,3500), high.thresholds = c(90000, 0.30,8000)
+seurd=subset(seurd, subset  = nFeature_RNA < 8000 & nCount_RNA <90000 & percent.mito <30)
+seurd= subset(seurd, subset  = nFeature_RNA > 3500 & nCount_RNA >20000)
+VlnPlot(seurd, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+seurd=SubsetData(seurd, ident.remove = 4)
+seurd=DietSeurat(seurd)
+```
+
+```{r}
+seurd= preprocess(seurd)
+```
+
+```{r}
+seurd= preprocess(seurd)
+#use MAGIC on the expression values
+library(Rmagic)
+td=t(seurd@assays$RNA@data)
+td=as.matrix(td)
+
+genes=c("BCL6","PDCD1", "CXCR5","ICOS","IL21","TBX21","GATA3","RORC","FOXP3","MAF","CCR6","CXCR3","IFNG","TNF","IL4","IL13","IL9","IL17A","CXCL13","IL5", "IL13", "CXCL13","TNFA", "IL17F", "FOXP3", "CD27", "IL32")
+genes=append(genes, VariableFeatures(seurd))
+####
+DefaultAssay(seurd)= "RNA"
+mobj=magic(td, genes=rownames(seurd),k=20, t="auto", n.jobs = -2)
+magic.res=mobj$result
+library(Seurat)
+seurd[['imputed']] <- CreateAssayObject(data = as.matrix(x = t(magic.res)))
+
+DefaultAssay(seurd)="imputed"
+library(ggplot2)
+library(viridis)
+tfh=list(c("BCL6","PDCD1", "CXCR5","IL21"))
+th1= list(c("TNF","IFNG","TBX21"))
+th2=list(c("IL4", "IL5","GATA3"))
+tfh1=list(c("BCL6","PDCD1", "CXCR5","IL21", "TNF","IFNG","TBX21"))
+th17=list(c("IL17A", "IL17F", "RORC"))
+gmcsf=seurd
+```
+
+KEPT:
+```{r}
+seurd=AddModuleScore(seurd, features = tfh, name="TFH_signature", nbin = 10, ctrl = 4)
+seurd=AddModuleScore(seurd, features = th1, name="TH1_signature",ctrl = 10,nbin = 4)
+seurd=AddModuleScore(seurd, features = th2, name="TH2_signature",ctrl.size = 4,nbin = 10)
+seurd=AddModuleScore(seurd, features = tfh1, name="TFH1_signature",ctrl.size = 10,nbin = 4)
+seurd=AddModuleScore(seurd, features = th17, name="TH17_signature",ctrl.size = 10,nbin = 4)
+VlnPlot(seurd, c("TFH_signature1" , "TH1_signature1" , "TH2_signature1"), pt.size = 0)
+saveRDS(seurd, "/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/Analysis_GMCSF/GMCSF.Rds")
+```
+
+```{r}
+library(gtable)
+library(gridExtra)
+library(grid)
+nbr=as.data.frame( table(seurd$seurat_clusters))
+colnames(nbr)=c("cluser", "NumberCells")                 
+g <- tableGrob(nbr, rows = NULL)
+g <- gtable_add_grob(g,
+        grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+        t = 1, l = 1, r = ncol(g))
+grid.draw(g)
+```
+
+```{r}
+library(viridis)
+library(ggpubr)
+A=FeaturePlot(seurd, "TH1_signature1")+NoAxes()+scale_color_viridis(option = "B")
+B= FeaturePlot(seurd, "TH2_signature1")+NoAxes()+scale_color_viridis(option = "B")
+C=FeaturePlot(seurd, "TH17_signature1")+NoAxes()+scale_color_viridis(limits=c(-0.0011,0.01),option = "B")
+D=FeaturePlot(seurd, "TFH_signature1")+NoAxes()+scale_color_viridis(option = "B")
+ggarrange(A,B,C,D, ncol = 4)
+```
+
+```{r}
+FeatureScatter(seurd, "TFH_signature1", "TH1_signature1")
+FeatureScatter(seurd, "TFH_signature1", "TFH1_signature1")
+FeatureScatter(seurd, "TH2_signature1", "TFH_signature1")
+FeatureScatter(seurd, "TH2_signature1", "TFH1_signature1")
+FeatureScatter(seurd, "TH2_signature1", "TH1_signature1")
+```
+
+create cell type column:
+```{r}
+celltype=c("Tfh1", "Tfh", "Th2","Tfh1")
+names(celltype)=levels(seurd)
+seurd=RenameIdents(seurd, celltype)
+seurd$celltype=Idents(seurd)
+DimPlot(seurd)
+```
+
+Estimate the fraction of cells:
+```{r}
+nbr=as.data.frame(table(seurd$celltype))
+colnames(nbr)=c("CellType", "NumberCells")
+nbr$Fraction=nbr$NumberCells/100
+nbr
+library(ggplot2)
+library(scales)
+# Bar plot
+blank_theme <- theme_minimal()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.border = element_blank(),
+  panel.grid=element_blank(),
+  axis.ticks = element_blank(),
+  plot.title=element_text(size=14, face="bold")
+  )
+bp<- ggplot(nbr, aes(x="", y=Fraction, fill=CellType))+
+geom_bar(width = 1, stat = "identity")  + coord_polar("y", start=0) +
+  blank_theme+
+  theme(axis.text.x=element_blank())+
+  geom_text(aes( y = Fraction/3 +c(0, cumsum(Fraction-4)[-length(Fraction)]) , 
+                label = percent(Fraction/100)), size=5)
+```
+
+Check the boxplot distribution for each module within each cell type
+```{r}
+VlnPlot(seurd, c("TH1_signature1","TH2_signature1","TFH_signature1", "TFH1_signature1"), ncol = 2)
+
+FeatureScatter(seurd, "TFH_signature1", "TFH1_signature1")
+FeatureScatter(seurd, "TH2_signature1","TFH_signature1")
+```
+
+```{r}
+p=FeaturePlot(seurd, c("BCL6", "PDCD1","CXCR5","IL21"), combine = F)
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] +
+    NoAxes()+scale_color_viridis(option = "B") }
+cowplot::plot_grid(plotlist = p, ncol = 4)
+```
+
+Create another column with Th1:
+```{r}
+seurd$CT= gsub("Tfh1", "Th1", seurd$celltype)
+
+nbr=as.data.frame(table(seurd$CT))
+colnames(nbr)=c("CellType", "NumberCells")
+
+ggplot(nbr, aes(x="", y=NumberCells, fill=CellType))+
+geom_bar(width = 1, stat = "identity")  + coord_polar("y", start=0) +
+  blank_theme+
+  theme(axis.text.x=element_blank())+
+  geom_text(aes( y = NumberCells/3 +c(0, cumsum(NumberCells-4)[-length(NumberCells)]) , 
+                label = paste(NumberCells/100, "%")), size=5)
+```
+
+```{r}
+vln(seurd, c("BCL6", "PDCD1","CXCR5","IL21"), "Tfh1")
+vln(seurd, c("TNF", "IFNG","TBX21"), "Tfh1")
+vln(seurd, c("IL4","IL13","GATA3"), "Th2")
+vln(seurd,c("IL17A", "IL17F","RORC") )
+vln(seurd, c("TH1_signature1","TH2_signature1","TFH_signature1", "TFH1_signature1"), "Tfh1")
+
+
+
+p <-VlnPlot(seurd, c("IL17A", "IL17F","RORC"), pt.size = 0, combine = F , group.by = "celltype")
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] +NoLegend()+
+  stat_summary(fun= median, geom='point', size = 5, colour = "black", shape = 95) +
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "Th2")}
+cowplot::plot_grid(plotlist = p, ncol = 3)
+```
+
+
+
+TH1, TH2, TH17 separate genes:
+```{r}
+genes=c("TNF", "IFNG","TBX21")
+genes= c("IL4","IL13","GATA3")
+genes=c("IL17A", "IL17F","RORC")
+p=FeaturePlot(seurd,genes , combine = F)
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] +
+    NoAxes()+scale_color_viridis(option = "B", limits=c(0,0.02)) }
+cowplot::plot_grid(plotlist = p, ncol = 3)
+```
+
+```{r}
+p=FeaturePlot(seurd,c("TH1_signature1","TH2_signature1","TH17_signature1", "TFH_signature1") , combine = F)
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] +
+    NoAxes()+scale_color_viridis(option = "B") }
+cowplot::plot_grid(plotlist = p, ncol = 4)
+```
+
+
+
+Correlation Matrix:
+```{r}
+g=c("TNF", "IFNG" ,"TBX21","IL4","IL13","GATA3","IL17A", "IL17F","RORC","BCL6", "PDCD1","CXCR5","IL21")
+
+pheatmap::pheatmap(cor(magic.res[,which(colnames(magic.res) %in% g)]))
+```
+ Save the gmcsf dataset:
+```{r}
+saveRDS(seurd, "/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/Analysis_GMCSF/GMCSF_finalSeuratObject.Rds")
+```
+ 
+
+################# LPS ########################
+```{r}
+library(Seurat)
+lps= Read10X("/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/LPS/")
+lps=CreateSeuratObject(lps,  min.genes = 100, project = "GMCSF")
+lps[["percent.mito"]] <- PercentageFeatureSet(lps, pattern = "^MT-")
+VlnPlot(lps, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+## low.thresholds = c(20000, -Inf,3500), high.thresholds = c(90000, 0.30,8000)
+lps=subset(lps, subset  = nFeature_RNA < 8000 & nCount_RNA <90000 & percent.mito <30)
+VlnPlot(lps, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+##
+lps= preprocess(lps)
+DimPlot(lps)+NoAxes()
+```
+
+#use MAGIC on the expression values
+```{r}
+library(Rmagic)
+ld=t(lps@assays$RNA@data)
+ld=as.matrix(ld)
+DefaultAssay(lps)= "RNA"
+lobj=magic(ld, genes=rownames(lps),k=20, t="auto", n.jobs = -2)
+magic.resL=lobj$result
+
+library(Seurat)
+lps[['imputed']] <- CreateAssayObject(data = as.matrix(x = t(magic.resL)))
+
+DefaultAssay(lps)="imputed"
+library(ggplot2)
+library(viridis)
+tfh=list(c("BCL6","PDCD1", "CXCR5","IL21"))
+th1= list(c("TNF","IFNG","TBX21"))
+th2=list(c("IL4", "IL5","GATA3"))
+tfh1=list(c("BCL6","PDCD1", "CXCR5","IL21", "TNF","IFNG","TBX21"))
+th17=list(c("IL17A", "IL17F", "RORC"))
+```
+
+Save the LPS dataset:
+```{r}
+saveRDS(lps, "/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/Analysis_LPS/LPS_final.Rds")
+```
+
+##############################################################
+########### MEDIUM ######################### 
+
+```{r}
+library(Seurat)
+cnt= Read10X("/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/Naive/")
+cnt=CreateSeuratObject(cnt,  min.genes = 100, project = "MEDIUM")
+cnt[["percent.mito"]] <- PercentageFeatureSet(cnt, pattern = "^MT-")
+###
+VlnPlot(cnt, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+cnt=subset(cnt, subset  = nFeature_RNA < 2000 & nCount_RNA <10000 & percent.mito <30)
+VlnPlot(cnt, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+##
+cnt= preprocess(cnt)
+DimPlot(cnt)+NoAxes()
+```
+
+```{r}
+library(Rmagic)
+cd=t(cnt@assays$RNA@data)
+cd=as.matrix(cd)
+DefaultAssay(cnt)= "RNA"
+cobj=magic(cd, genes=rownames(cnt),k=20, t="auto", n.jobs = -1)
+magic.resC=cobj$result
+library(Seurat)
+cnt[['imputed']] <- CreateAssayObject(data = as.matrix(x = t(magic.resC)))
+
+DefaultAssay(cnt)="imputed"
+library(ggplot2)
+library(viridis)
+tfh=list(c("BCL6","PDCD1", "CXCR5","IL21"))
+th1= list(c("TNF","IFNG","TBX21"))
+th2=list(c("IL4", "IL5","GATA3"))
+tfh1=list(c("BCL6","PDCD1", "CXCR5","IL21", "TNF","IFNG","TBX21"))
+th17=list(c("IL17A", "IL17F", "RORC"))
+```
+
+Save the MEDIUM dataset
+```{r}
+saveRDS(cnt, "/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/Analysis_MEDIUM/Medium.Rds")
+```
+
+###########################################################################
+##########Downstream Analyses : common for the three datasets #############
+Plot the genes and keep the same scale as in GMCSF:
+```{r}
+summary(magic.res[,"BCL6"])
+summary(magic.res[,"PDCD1"])
+summary(magic.res[,"CXCR5"])
+summary(magic.res[,"IL21"])
+```
+
+```{r}
+a=FeaturePlot(lps, "BCL6") +
+    NoAxes()+ NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.05743))
+b=FeaturePlot(lps, "PDCD1") +
+    NoAxes()+NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.10180))
+c=FeaturePlot(lps, "CXCR5") +
+    NoAxes()+NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.05761))
+d=FeaturePlot(lps, "IL21") +
+    NoAxes()+NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.09318))
+```
+
+```{r}
+DefaultAssay(cnt)="imputed"
+a=FeaturePlot(cnt, "BCL6") +
+    NoAxes()+ NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.05743))
+b=FeaturePlot(cnt, "PDCD1") +
+    NoAxes()+ NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.10180))
+c=FeaturePlot(cnt, "CXCR5") +
+    NoAxes()+ NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.05761))
+d=FeaturePlot(cnt, "IL21") +
+    NoAxes()+ NoLegend()+scale_color_viridis(option = "B", limits=c(0,0.09318))
+ggarrange(a,b,c,d, ncol = 4)
+```
+
+```{r}
+lps=AddModuleScore(lps, features = tfh, name="TFH_signature", ctrl = 4, nbin = 10)
+VlnPlot(lps, c("TFH_signature1"))
+##
+cnt=AddModuleScore(cnt, features = tfh, name="TFH_signature", ctrl = 4, nbin = 10)
+VlnPlot(cnt, c("TFH_signature1"))
+##
+A=FeaturePlot(cnt, "TFH_signature1")+NoAxes()+NoLegend()+scale_color_viridis(option = "B",limits=c(-0.012368,0.035435))
+
+B=FeaturePlot(lps, "TFH_signature1")+NoAxes()+NoLegend()+scale_color_viridis(option = "B", limits=c(-0.012368,0.035435))
+
+C=FeaturePlot(seurd, "TFH_signature1")+NoAxes()+scale_color_viridis(option = "B", limits=c(-0.012368,0.035435))
+ggarrange(A,B,C, ncol = 3)
+```
+
+Save the gmcsf dataset:
+```{r}
+saveRDS(cnt, "/Users/equipe.soumelis/Desktop/Projects/scRNAseq_DC_Tfh/")
+```
+
+
+
