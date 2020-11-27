@@ -1,0 +1,700 @@
+---
+title: "TFH1_COVID19"
+author: "Melissa"
+date: "04/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+sdata= Read10X("/Users/equipe.soumelis/Desktop/Projects/scRNAseqCOVID_datasets/GSE149689_Immunophenotyping of COVID-19 and InfluenzaSevere COVID-19")
+s=CreateSeuratObject(sdata) #, min.cells = 10, min.features = 50
+```
+
+Add information regarding the sample of origin:
+
+```{r}
+library(readxl)
+ms1 <- read_excel("/Users/equipe.soumelis/Desktop/Projects/scRNAseqCOVID_datasets/GSE149689_Immunophenotyping of COVID-19 and InfluenzaSevere COVID-19/Supp files/Table_S1 (1).xlsx")
+##
+ms1$`Sample ID`=gsub(" ","",ms1$`Sample ID`)
+ms1$`Sample ID`=gsub("Normal","HD",ms1$`Sample ID`)
+cn=colnames(s)
+library(stringr)
+cn=cn %>% str_match_all("[0-9]+") %>% unlist %>% as.numeric
+####
+s$index=cn
+Idents(s)="index"
+##
+sid=c( "1"= "nCoV1", "2"= "nCoV2", "3"= "Flu1", "4"= "Flu2", "5"= "HD1","6"= "Flu3","7"= "Flu4", "8"="Flu5", "9"="nCoV3", "10"= "nCoV4", "11"= "nCoV5", "12"="nCoV6", "13"="HD2", "14"="HD3", "15"="nCoV7","16"="nCoV8", "17"="nCoV9", "18"="nCoV10", "19"="HD4", "20"="nCoV11")
+s=RenameIdents(s, sid)
+s$sampleID=Idents(s)
+##
+ms1$`Disease group`=gsub("-19","", ms1$`Disease group`)
+ms1=as.data.frame(ms1)
+rownames(ms1)= ms1$`Sample ID`
+Idents(s)="sampleID"
+ms1=ms1[levels(s),]
+all(levels(Idents(s))== ms1$`Sample ID`)
+###
+dg= ms1$`Disease group`
+names(dg)=levels(s)
+s=RenameIdents(s, dg)
+s$DiseaseGroup= Idents(s)
+```
+
+```{r}
+##
+ms1[10,2]= "F5"
+ms1[16,2]= "C6"
+ms1[18,2]= "C7"
+##
+Idents(s)="sampleID"
+pid= ms1$`Patient ID`
+names(pid)=levels(s)
+s=RenameIdents(s, pid)
+s$patientID= Idents(s)
+```
+
+```{r}
+s[["percent.mito"]] <- PercentageFeatureSet(s, pattern = "^MT-")
+
+VlnPlot(s, c("nCount_RNA", "nFeature_RNA","percent.mito"))
+s=subset(s, percent.mito < 30)
+s=subset(s, nFeature_RNA > 500)
+s=subset(s, nCount_RNA > 1000)
+preprocess= function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 3000)
+    x= ScaleData(x)}
+    #x= RunPCA(x, features = VariableFeatures(object = x))
+    # x <- FindNeighbors(x, dims = 1:30)
+    #x <- FindClusters(x, resolution = 1.0)
+   #x<- RunUMAP(x, dims = 1:30)}
+
+s=preprocess(s)
+saveRDS(s, "/Users/equipe.soumelis/Desktop/Projects/scRNAseqCOVID_datasets/GSE149689_Immunophenotyping of COVID-19 and InfluenzaSevere COVID-19/Analysis/seurat_AllFiltered.Rds" )
+##
+s=readRDS("/Users/equipe.soumelis/Desktop/Projects/scRNAseqCOVID_datasets/GSE149689_Immunophenotyping of COVID-19 and InfluenzaSevere COVID-19/Analysis/seurat_AllFiltered.Rds")
+```
+
+```{r}
+tcd4= subset(s, PTPRC>0.3 & CD3E > 0.3 & CD4 > 0.3  )
+tcd4= DietSeurat(tcd4)
+
+preprocess= function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 3000)
+    x= ScaleData(x)
+    x= RunPCA(x, features = VariableFeatures(object = x))
+     x <- FindNeighbors(x, dims = 1:30)
+    x <- FindClusters(x, resolution = 0.8)
+   x<- RunUMAP(x, dims = 1:30)}
+tcd4= preprocess(tcd4)
+##
+p=FeaturePlot(tcd4, c("PTPRC","CD4"))
+ggsave(filename=paste0("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_17november/FP_CD45_CD4_",Sys.Date() ,".png"), plot=p, device="png", height=5, width=8, units="in", dpi=500)
+```
+
+Construct TFH signature:
+tfh1=c("BCL6","PDCD1", "CXCR5","IL21", "TNF","IFNG","TBX21")
+```{r}
+tfh=list(c("BCL6","PDCD1", "CXCR5","IL21", "ICOS"))
+tcd4= AddModuleScore(tcd4, features = tfh, name = "TFHSignature", nbin = 100, ctrl = 200)
+##
+library(RColorBrewer)
+library(ggpubr)
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+p1=DimPlot(tcd4, cols = getPalette(length(unique(tcd4$DiseaseGroup))), group.by = "DiseaseGroup")
+ggsave(filename="Umap_CD4_DG.png", plot=p1, device="png",
+        height=5, width=6, units="in", dpi=500)
+###
+p1=VlnPlot(tcd4, group.by = "sampleID", "TFHSignature1", cols = getPalette(length(unique(tcd4$sampleID))) )
+ggsave(filename="VLN_CD4_SID_TFH.png", plot=p1, device="png",
+        height=8, width=8, units="in", dpi=500)
+##
+p2=VlnPlot(tcd4, group.by = "DiseaseGroup", "TFHSignature1", cols = getPalette(length(unique(tcd4$DiseaseGroup))) )
+#
+ggsave(filename="VLN_CD4_DG_TFH.png", plot=p2, device="png",
+        height=8, width=8, units="in", dpi=500)
+#######
+p2=VlnPlot(cdc, group.by = "DiseaseGroup", "DC2dc1", cols = getPalette(length(unique(cdc$DiseaseGroup))) )
+#
+ggsave(filename="VLN_DC_DCLOW.png", plot=p2, device="png",
+        height=5, width=5, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/")
+#
+p2=VlnPlot(cdc, group.by = "severity", "DC2dc1", cols = getPalette(length(unique(cdc$severity))) )
+ggsave(filename="VLN_DC_DCLOW_Sev.png", plot=p2, device="png",
+        height=5, width=5, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/")
+```
+
+Isolate and compare the percentage of Tfh cells within CD4Tcells:
+```{r}
+tcd4$Tfhstate= ifelse( tcd4$TFHSignature1 > 0, "TFHpos", "TFHneg" )
+nc1= as.data.frame.table(table(tcd4$DiseaseGroup, tcd4$Tfhstate))
+colnames(nc1)=c("Severity","TfhState","number_cells")
+```
+
+```{r}
+g=ggplot(nc1, aes(x=Severity, y=number_cells, fill=TfhState)) + 
+    geom_bar(position="stack", stat="identity") + rotate_x_text()
+ggsave(filename="Barplot_TfhState_Severity.png", plot=g, device="png",
+        height=8, width=8, units="in", dpi=500)
+```
+
+ISOLATE ONLY TFH positive cells:
+```{r}
+Idents(tcd4)= "type"
+tfhc= subset(tcd4, idents = "TFHpos")
+tfhc=preprocess(tfhc)
+nc2= as.data.frame(table(tfhc$DiseaseGroup))
+colnames(nc2)= c("DiseaseGroup", "Number_TFHCells")
+###
+blank_theme <- theme_minimal()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.border = element_blank(),
+  panel.grid=element_blank(),
+  axis.ticks = element_blank(),
+  plot.title=element_text(size=14, face="bold")
+  )
+##
+p=ggplot(nc2, aes(x="", y=Number_TFHCells, fill=DiseaseGroup)) +
+geom_bar(width = 1, stat = "identity")  + coord_polar("y", start=0) +
+  blank_theme +
+  theme(axis.text.x=element_blank())+
+  geom_text(aes( y = Number_TFHCells/7 +c(0, cumsum(Number_TFHCells-30)[-length(Number_TFHCells)]) , 
+                label = paste(Number_TFHCells/100, "%")), size=3)
+ggsave(filename="Camembert_TFHpos_DG.png", plot=p, device="png",
+        height=8, width=8, units="in", dpi=500)
+```
+
+```{r}
+th1=list(c("IFNG", "TBX21","TNF", "CXCR3"))
+th2=list(c( "IL4", "IL5", "GATA3", "IL13"))
+th17= list(c("IL17A", "IL17F", "RORC", "CCR6"))
+```
+
+```{r}
+tfhc= AddModuleScore(tfhc, features = th1, name = "TH1signature", nbin = 100,ctrl= 200) #, 
+##
+tfhc= AddModuleScore(tfhc, features = th2, name = "TH2signature", nbin = 100,ctrl= 200)
+##
+tfhc= AddModuleScore(tfhc, features = th17, name = "TH17signature", nbin = 100,ctrl= 200)
+```
+
+TFH1:
+```{r}
+p1=VlnPlot(tfhc, group.by = "sampleID", "TH1signature1", cols = getPalette(length(unique(tfhc$sampleID))) )  +NoLegend()
+##
+p2=VlnPlot(tfhc, group.by = "DiseaseGroup", "TH1signature1", cols = getPalette(length(unique(tfhc$DiseaseGroup))) ) +NoLegend()
+##
+p=p1+p2
+ggsave(filename="VLN_TFH1DG_SID.png", plot=p, device="png",
+        height=10, width=8, units="in", dpi=500)
+```
+
+TFH2:
+```{r}
+p1=VlnPlot(tfhc, group.by = "sampleID", "TH2signature1", cols = getPalette(length(unique(tfhc$sampleID))) )  +NoLegend()
+##
+p2=VlnPlot(tfhc, group.by = "DiseaseGroup", "TH2signature1", cols = getPalette(length(unique(tfhc$DiseaseGroup))) ) +NoLegend()
+##
+p=p1+p2
+ggsave(filename="VLN_TFH1DG_SID.png", plot=p2, device="png",
+        height=10, width=8, units="in", dpi=500)
+```
+
+```{r}
+p=FeatureScatter(tfhc, "TH2signature1", "TH1signature1", group.by = "DiseaseGroup", cols = getPalette(length(unique(tfhc$DiseaseGroup))) )
+
+ggsave(filename="FS_TFH2_TFH1.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+TFH17:
+```{r}
+p1=VlnPlot(tfhc, group.by = "sampleID", "TH17signature1", cols = getPalette(length(unique(tfhc$sampleID))) )  +NoLegend()
+##
+p2=VlnPlot(tfhc, group.by = "DiseaseGroup", "TH17signature1", cols = getPalette(length(unique(tfhc$DiseaseGroup))) ) +NoLegend()
+##
+p=p1+p2
+ggsave(filename="VLN_TFH17_DG_SID.png", plot=p, device="png",
+        height=10, width=8, units="in", dpi=500)
+```
+#####
+Calculate percentages per severity:
+```{r}
+which(rownames(as.matrix(tfhc@assays$RNA@data))=="CXCR3")
+tfhc$CXCR3= as.matrix(tfhc@assays$RNA@data)[13847,]
+which(rownames(as.matrix(tfhc@assays$RNA@data))=="CCR6")
+tfhc$CCR6= as.matrix(tfhc@assays$RNA@data)[11741,]
+
+tfhc$TfhSubtype= ifelse(tfhc$TH1signature1>0 & tfhc$CXCR3 > 0.1 & tfhc$CCR6 < 0.1, "Tfh1pos", ifelse(tfhc$TH2signature1 >0 & tfhc$CXCR3 < 0.1 & tfhc$CCR6 < 0.1 , "Tfh2pos", ifelse(tfhc$TH17signature1 >0 & tfhc$CXCR3 < 0.1 & tfhc$CCR6 > 0.1, "Tfh17pos", "TfhOther")))
+table(tfhc$TfhSubtype)
+```
+
+
+```{r}
+Idents(tfhc)="TfhSubtype"
+library(data.table)
+nbr=as.data.table(table(tfhc$TfhSubtype ,tfhc$DiseaseGroup), keep.rownames = T)
+##
+g=ggplot(nbr, aes(x=V1, y=N, fill=V2)) + 
+    geom_bar(position="stack", stat="identity") + rotate_x_text()
+
+ggsave(filename="Barplot_TfhStatesAll_DS.png", plot=g, device="png",
+        height=8, width=8, units="in", dpi=500)
+```
+
+Tfh_Subtype Severity
+```{r}
+x=table(tfhc$TfhSubtype ,tfhc$sampleID)
+nc=colnames(x)
+nr=rownames(x)
+x=as.matrix.data.frame(x)
+colnames(x)=nc
+rownames(x)= nr
+x=as.data.frame(x)
+x=as.data.frame(t(x))
+write.csv(x, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/normalizeNbrCells_CountTable_Tfhstates_DG_ALLCORRECT.csv")
+##
+x2=round(x/table(tfhc$sampleID),2)*100
+#write.csv(x2, "CountTable_Tfhstates_DG_PercentagesOfTotalTFH.csv")
+write.csv(x2, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/normalizeNbrCells_CountTable_Tfhstates_DG_Percentages.csv")
+```
+
+DO THE SAME FOR DC:
+```{r}
+#cDC=list(c("ANPEP",  "CD1C", "ITGAX", "CST3", "FCER1A"))
+#s= AddModuleScore(s, features = cDC, name = "cDC", nbin = 100, ctrl = 200)
+cdc=subset(s, subset= CD1C > 0.1 & ANPEP > 0.1 & THBD < 0.1)
+cdc=DietSeurat(cdc)
+cdc=preprocess(cdc)
+##
+getPalette = colorRampPalette(brewer.pal(5, "Dark2"))
+p1= DimPlot(cdc, group.by = "DiseaseGroup", cols = getPalette(length(unique(cdc$DiseaseGroup))))
+##
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Umap_DC_DG.png", plot=p1, device="png",height=5, width=5, units="in", dpi=500)
+#
+cdc$severity= ifelse(cdc$DiseaseGroup %in% grep("Healthy", cdc$DiseaseGroup, value = T), "HC", ifelse(cdc$DiseaseGroup %in% grep("COVID", cdc$DiseaseGroup, value = T),"Covid","Influenza" ))
+
+getPalette = colorRampPalette(brewer.pal(3, "YlOrRd"))
+p2= DimPlot(cdc, group.by = "severity", cols = getPalette(length(unique(cdc$severity))))
+##
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Umap_DC_Sev.png", plot=p2, device="png",height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+dc1=list(c("ASXL3", "RNF17", "CLUHP3", "SULF1", "ADORA2A", "HNF1B", "MYH7", "SERPINE2", "EDIL3"))
+dc2=list(c("CATSPER1", "BCAN","CD302", "FAM81A", "ARHGEF15", "TRIM10", "SNX29P1", "NME1-NME2"))
+```
+
+```{r}
+cdc= AddModuleScore(cdc, features = dc1, name = "DC1dc", nbin = 100, ctrl = 100)
+cdc= AddModuleScore(cdc, features = dc2, name = "DC2dc", nbin = 100, ctrl = 100) #, nbin = 100, ctrl = 200
+
+cdc$DCsubset= ifelse(cdc$DC2dc1 > 0 & cdc$DC1dc1 < 0 , "DClow", 
+                     ifelse(cdc$DC1dc1>0 & cdc$DC1dc1 < 0, "DChigh"
+                            , "DCother"))
+```
+
+```{r}
+#xd=table(cdc$DCsubset ,cdc$DiseaseGroup)
+#xd=table(cdc$DCsubset ,cdc$severity)
+xd=table(cdc$DCsubset ,cdc$sampleID)
+a=colnames(xd)
+b=rownames(xd)
+xd=as.matrix.data.frame(xd)
+colnames(xd)=a
+rownames(xd)=b
+xd=as.data.frame(xd)
+xd=as.data.frame(t(xd))
+write.csv(xd, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/DCcounts_DG.csv")
+##
+xdp= round(xd/table(cdc$sampleID),2)*100
+write.csv(xdp, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/DCPercentage_SampleID_Normalized.csv")
+```
+Merge the two: DG:
+```{r}
+all(rownames(xdp)==rownames(x2))
+percentages=cbind(xdp, x2)
+#perdata=percentages[,-c(3,7)]
+percentages$Tfh= round(table(tfhc$sampleID)/ncol(tcd4),2)*100
+##
+  write.csv(percentages, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentage_SAMPLEID_tfh_dc_Rounded_Normalized.csv")
+```
+
+```{r}
+perdata=percentages[,-c(1,7,11)]
+write.csv(perdata, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentage_SAMPLEID_tfh_dc_Rounded_Normalized_Cleaned.csv")
+  #
+dt=as.data.frame(t(perdata))
+dt$celltype=rownames(dt)
+dt=dt[-c(3,4),]
+dt=dt[,-9]
+#dt=dt[,-4]
+#dt=dt[c(4,2,1,3,5),]
+dd= reshape2::melt(dt, "celltype")
+p=ggplot(dd, aes(fill=variable, y=value, x=celltype)) + 
+    geom_bar(position="dodge", stat="identity") 
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/BaplotPercentages_DG_WithoutHD.png", plot=p, device="png",
+        height=8, width=8, units="in", dpi=500)
+```
+
+```{r}
+p=ggplot(dd, aes(x=variable, y=value, group=celltype, color=celltype)) + 
+  geom_line() +
+  rotate_x_text(angle=315)+
+labs(title="Percentage of cells_Tc_DC", x="Disease_Stage", y = "%Cells")+
+   theme_classic() 
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Perc_Cells_DCT_Sev_WithoutHD.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+xd=table(cdc$sampleID, cdc$DCsubset)
+a=colnames(xd)
+b=rownames(xd)
+xd=as.matrix.data.frame(xd)
+colnames(xd)=a
+rownames(xd)=b
+xd=as.data.frame(xd)
+#####
+xt=table(tfhc$sampleID, tfhc$TfhSubtype)
+a=colnames(xt)
+b=rownames(xt)
+xt=as.matrix.data.frame(xt)
+colnames(xt)=a
+rownames(xt)=b
+xt=as.data.frame(xt)
+##
+all(rownames(xt)==rownames(xd))
+
+#pds= cbind(xd, xt)
+
+##
+pds=xt
+pds= cbind(xd, xt)
+##
+pds=percentages
+rownames(ms1)=ms1$`Sample ID`
+ms1$`Sample ID`=gsub(" ", "",ms1$`Sample ID`)
+ms1=as.data.frame(ms1)
+percentages$sampleID= rownames(percentages)
+ms1$`Sample ID`= c(ms1$`Sample ID`[1:16], paste0("HD",seq(1,4)))
+all(rownames(percentages)== ms1$`Sample ID`)
+percentages=percentages[order(match(percentages$sampleID,ms1$`Sample ID`)),]
+pds=percentages
+pds$Disease_Group=ms1$`Disease group`
+#pds=pds[,-c(3,7)]
+#pds=pds[-c(8,9,16),]
+##
+pds$severity= ifelse(pds$Disease_Group %in% grep("Healthy", pds$Disease_Group, value = T), "HC", ifelse(pds$Disease_Group %in% grep("COVID", pds$Disease_Group, value = T),"Covid","Influenza" ))
+
+write.csv(pds, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/PDS_TrueValuesperSample.csv")
+```
+
+```{r}
+#Tfh1:
+t1=pds[,c(10,13)]
+dds= reshape2::melt(t1, "Disease_Group")
+####
+p3 <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of cells_Tfh1", x="Disease_Group", y = "%Cells")+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "Healthy donor")+theme_classic() 
+
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_Tfh1_dots_Severity_SAMPLEID.png", plot=p3, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+#Tfh1:
+t1=pds[,c(4,13)]
+dds= reshape2::melt(t1, "Disease_Group")
+####
+p3 <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of cells_Tfh1", x="Disease_Group", y = "%Cells")+
+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "mild COVID-19")+
+   theme_classic() 
+
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_Tfh1_dotsSampleID.png", plot=p3, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+DClow:
+```{r}
+t1=pds[,c(6,14)]
+dds= reshape2::melt(t1, "severity")
+
+p <- ggplot(dds, aes(x=severity, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of DClow", x="Disease_Group", y = "%Cells")+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "HC")+
+   theme_classic() 
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_DClow_dotsSev_SampleID.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+DCHIGH
+```{r}
+pds$DChigh=rep(2,nrow(pds))
+t1=pds[,c(8,13)]
+dds= reshape2::melt(t1, "Disease_Group")
+
+p <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of Tfh17", x="Disease_Group", y = "%Cells")+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "mild COVID-19")+
+   theme_classic() 
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_DCHigh_dotsSEV.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+p=DimPlot(cdc, group.by = "DCsubset")
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/DC_UMAP.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+TFH2:
+```{r}
+t1=pds[,c(10,13)]
+dds= reshape2::melt(t1, "Disease_Group")
+
+p2 <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of tfh2", x="severity", y = "%Cells")+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "mild COVID-19")   +
+   theme_classic() 
+
+ggsave(filename="/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_Tfh2_dotsSev_SAMPLEID_DG.png", plot=p2, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+TFH17:
+```{r}
+t1=pds[,c(3,8)]
+dds= reshape2::melt(t1, "severity")
+#
+p2 <- ggplot(dds, aes(x=severity, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of tfh17", x="Disease_Group", y = "%Cells")+
+   stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "HC")  +
+   theme_classic() 
+
+ggsave(filename="Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_TFH17_dotsSev.png", plot=p2, device="png", height=5, width=5, units="in", dpi=500)
+```
+TFH17:
+```{r}
+t1=pds[,c(1,6)]
+dds= reshape2::melt(t1, "Disease_Group")
+#
+p2 <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of DHhigh", x="Disease_Group", y = "%Cells")+
+  stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = "mild COVID")   +
+   theme_classic() 
+ggsave(filename="Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/Percentages_DChigh_dots.png", plot=p2, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+Tfhpos=as.vector(table(tfhc$sampleID))/ncol(tcd4)
+pds=cbind(Tfhpos, pds)
+##
+t1=pds[,c(1,7)]
+dds= reshape2::melt(t1, "Disease_Group")
+#
+p2 <- ggplot(dds, aes(x=Disease_Group, y=value)) + 
+    geom_dotplot(binaxis='y', stackdir='center') +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+        geom="errorbar", color="red", width=0.2) +
+  stat_summary(fun.y=mean, geom="point", color="red") +
+  rotate_x_text(angle=90) +
+labs(title="Percentage of Tfh", x="Disease_Group", y = "%Cells")+
+   theme_classic() 
+ggsave(filename="Percentages_Tfh_dots.png", plot=p2, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+Take the same number of TFH positive and DClow positive cells and try to do correlation:
+```{r}
+table(cdc$DCsubset) # take 284 cells
+table(tfhc$Tfhstate) #1019 POSITIVE CELLS; from which 291 are TFH1positive
+###
+
+###
+ms=pds[which(pds$Disease_Group %in% c("mild COVID", "severe COVID")),]
+ms[,-7]= ms[,-7]*100
+
+sp <- ggscatter(ms, x = "DClow", y = "Tfh1pos",
+                add = "reg.line",               # Add regression line
+                conf.int = F,                # Add confidence interval
+                color = "Disease_Group", palette = "jco", # Color by groups "cyl"
+                shape = "Disease_Group")+
+  stat_cor(aes(color = Disease_Group), label.x = 1.13, label.y = 5.2) 
+```
+
+```{r}
+d1=as.data.frame(tfh1p$TH1signature1, col.names=c("Tfh1"))
+d1$sid=tfh1p$sampleID
+```
+
+```{r}
+saveRDS(cdc,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/cdc.Rds")
+saveRDS(tfhc,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Tfh.Rds")
+saveRDS(pds,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/PDS.Rds")
+```
+########
+
+```{r}
+p1=DimPlot(tcd4, group.by = "DiseaseGroup",  cols = getPalette(length(unique(tcd4$DiseaseGroup))))
+##
+p2=DimPlot(cdc, group.by = "DiseaseGroup",  cols = getPalette(length(unique(cdc$DiseaseGroup))))
+p=p1+p2
+
+ggsave(filename="Umap_CD4_DC.png", plot=p, device="png",
+        height=5, width=10, units="in", dpi=500)
+##
+p3=DimPlot(tcd4, group.by = "Tfhstate", cols = c("grey", "red"))
+ggsave(filename="Umap_CD4_TFHpos.png", plot=p3, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+WHY so different clusters:
+```{r}
+Idents(tcd4)="seurat_clusters"
+cm= FindMarkers(tcd4, ident.1 = c(9,8,2), ident.2 = NULL, only.pos = F, logfc.threshold = 0.5) 
+```
+
+```{r}
+library(RColorBrewer)
+library(ggpubr)
+p=DimPlot(tfhc, group.by = "TfhSubtype",cols= getPalette(length(unique(tfhc$TfhSubtype))))
+ggsave(filename="Umap_TFHpos_TFHsubsets.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+##
+brewer.pal.info
+getPalette = colorRampPalette(brewer.pal(4, "Dark2"))
+p=DimPlot(cdc, group.by = "DCsubset",cols= getPalette(length(unique(cdc$DCsubset))))
+ggsave(filename="Umap_cDCsubsets.png", plot=p, device="png",
+        height=5, width=5, units="in", dpi=500)
+```
+
+```{r}
+th1=list(c("IFNG", "TBX21","TNF"))
+th2=list(c( "IL4", "IL5", "GATA3"))
+th17= list(c("IL17A", "IL17F", "RORC"))
+```
+
+```{r}
+Idents(tcd4)="Tfhstate"
+tfhn= subset(tcd4, idents = "TFHneg")
+tfhn=DietSeurat(tfhn)
+tfhn=preprocess(tfhn)
+##
+tfhn= AddModuleScore(tfhn, features = th1, name = "TH1signature", nbin = 100,ctrl= 100) #, 
+tfhn= AddModuleScore(tfhn, features = th2, name = "TH2signature", nbin = 100,ctrl= 100)
+tfhn= AddModuleScore(tfhn, features = th17, name = "TH17signature", nbin = 100,ctrl= 100)
+#
+tfhn$TfSubtype= ifelse(tfhn$TH1signature1>0.1, "Th1pos", ifelse(tfhn$TH2signature1 >0.2, "Th2pos", ifelse(tfhn$TH17signature1 >0.1, "Th17pos", "ThOther")))
+table(tfhn$TfSubtype)
+```
+
+```{r}
+mono=list(c("CD14", "FCGR1A"," S100A12", "FCGR3A", "MS4A7", "LYZ", "CXCR3"))
+s=AddModuleScore(s, features = mono, name = "monocytesignature", nbin = 100,ctrl= 100)
+monocyte= subset (s, monocytesignature1 >0)
+##
+monocyte=subset(monocyte, FCGR3A > 0.5)
+monocyte=DietSeurat(monocyte)
+monocyte= preprocess(monocyte)
+##
+x=table(monocyte$DiseaseGroup)/ncol(monocyte)
+m=colnames(x)
+n=rownames(x)
+x=as.matrix.data.frame(x)
+colnames(x)=m
+rownames(x)= n
+x=as.data.frame(x)
+x=as.data.frame(t(x))
+write.csv(x, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/CountTable_Tfhstates_DG_ALLCORRECT.csv")
+##
+x2=x/ncol(tfhc)
+```
+
+```{r}
+table( s$DiseaseGroup)
+```
+
+```{r}
+B=list(c("CD19", "MS4A1", "CD79A", "CD79B"))
+s=AddModuleScore(s, features = B, name = "bsignature", nbin = 100,ctrl= 100)
+bc=subset(s, bsignature1 > 0.2)
+table(bc$DiseaseGroup)/ncol(bc)
+```
+
+```{r}
+tfhc$orig.ident="tfh"
+cdc$orig.ident="cdc"
+dat=merge(tfhc, cdc)
+dat=preprocess(dat)
+dt= table(dat$DC2dc1, dat$TFH1signature1) %>% as.data.frame()
+
+dt=as.data.frame(dt)
+rownames(dt)=n
+```
+```{r}
+saveRDS(cdc,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/CDC.Rds" )
+saveRDS(pds,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/PercentagesDC_TFH.Rds" )
+saveRDS(tcd4, "/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/TCD4.Rds")
+saveRDS(tfhc,"/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/TFH.Rds")
+pds= readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/PercentagesDC_TFH.Rds")
+tfhc=readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/TFH.Rds")
+cdc=readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/CDC.Rds")
+tcd4=readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/TCD4.Rds")
+```
+
+calculate the percentages:
+```{r}
+
+```
+
