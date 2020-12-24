@@ -1,0 +1,524 @@
+---
+title: "CLASSIFICATION_Serum"
+author: "Melissa"
+date: "12/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+M1: didnt work
+```{r}
+mat=mat[,-c()]
+new= mat[,c(3,7,12, 16,21,25,30)]
+new$IgG=ifelse(new$`IGG_CoV-2 S1 RBD...18` < 59 & new$`IGG_CoV-2 NC...22` < 58 , 0, 
+                #ifelse(new$`IGG_CoV-2 S1 RBD...18` > 59 | new$`IGG_CoV-2 NC...22` > 58, 1,
+              # ifelse(new$`IGG_CoV-2 S1 RBD...18` < median(new$`IGG_CoV-2 S1 RBD...18`) | new$`IGG_CoV-2 NC...22` < median(new$`IGG_CoV-2 NC...22`), 1, 
+                     
+                       ifelse(new$`IGG_CoV-2 S1 RBD...18` > median(new$`IGG_CoV-2 S1 RBD...18`) | new$`IGG_CoV-2 NC...22` > median(new$`IGG_CoV-2 NC...22`), 2, 1 ))
+##
+new$igM=ifelse(new$`IGM_CoV-2 S1 RBD...27` < 52 & new$`IGM_CoV-2 NC...31` < 19,  0, 
+              #  ifelse(new$`IGM_CoV-2 S1 RBD...27` > 52 | new$`IGM_CoV-2 NC...31` > 19 , 1, 
+               
+              # ifelse(new$`IGM_CoV-2 S1 RBD...27` < median(new$`IGM_CoV-2 S1 RBD...27`) | new$`IGM_CoV-2 NC...31` < median(new$`IGM_CoV-2 NC...31`) , 1,
+                                                                                         
+                ifelse(new$`IGM_CoV-2 S1 RBD...27` > median(new$`IGM_CoV-2 S1 RBD...27`) | new$`IGM_CoV-2 NC...31` > median(new$`IGM_CoV-2 NC...31`)  , 2, 1))
+
+
+saveRDS(new, "/Users/equipe.soumelis/Desktop/Paper-Serum/Categories_Median_09122020.Rds")
+
+new=readRDS("/Users/equipe.soumelis/Desktop/Paper-Serum/round1/Categories_TwiceThreshold_10122020_CORRECT_AddedIgA.Rds")
+```
+M2: Use the 2*Seuil:
+
+```{r}
+#colnames(mat)= gsub("\\.....*","",colnames(mat))
+new= pmat[,c(1,5,10, 14,19,23)]
+new$time=mat$time
+new$severity=mat$severity
+new$IgG=ifelse(new$`IGG_CoV-2 S1 RBD` < 59 & new$`IGG_CoV-2 NC` < 58 , 0, 
+                       ifelse(new$`IGG_CoV-2 S1 RBD` > 118 | new$`IGG_CoV-2 NC` > 116, 2, 1 ))
+##
+new$igM=ifelse(new$`IGM_CoV-2 S1 RBD` < 52 & new$`IGM_CoV-2 NC` < 19,  0, 
+                ifelse(new$`IGM_CoV-2 S1 RBD` > 104 | new$`IGM_CoV-2 NC` > 38  , 2, 1))
+###
+#new$igA=ifelse(new$`IGA_CoV-2 S1 RBD`  < 10.87 & new$`IGA_CoV-2 NC` < 10.43 ,  0, 
+             #   ifelse(new$`IGA_CoV-2 S1 RBD` > 21.74 | new$`IGA_CoV-2 NC`  > 20.86 , 2, 1))
+
+
+```
+
+Set Names and create the groups:
+```{r}
+new$nIgG= ifelse(new$IgG== 2, "IgG++", ifelse(new$IgG== 0, "IgG-", "IgG+"))
+
+new$nIgM= ifelse(new$igM== 2, "IgM++", ifelse(new$igM== 0, "IgM-", "IgM+"))
+
+#new$nIgA= ifelse(new$igA== 2, "IgA++", ifelse(new$igA== 0, "IgA-", "IgA+"))
+
+
+#new$category= paste0(new$nIgM, "_", new$nIgG, "_", new$nIgA)
+new$c=paste0(new$nIgM, "/", new$nIgG)
+#new$fcategory= ifelse(new$c== "IgM-_IgG-",paste0(new$c, "_", new$nIgA),new$c)
+
+new$category= ifelse(new$c== "IgM++/IgG-", "IgM+/IgG-", new$c)
+saveRDS(new, "/Users/equipe.soumelis/Desktop/Paper-Serum/Categories_TwiceThreshold_10122020_CORRECT_AddedIgA.Rds")
+```
+
+
+
+```{r}
+counting=function(c1,c2){
+  x=table(c1 ,c2)
+nc=colnames(x)
+nr=rownames(x)
+x=as.matrix.data.frame(x)
+colnames(x)=nc
+rownames(x)= nr
+x=as.data.frame(x)
+x=as.data.frame(t(x))
+return(x)
+}
+return(xd)}
+library(dplyr)
+library(ggplot2)
+#m=countable(new$category, new$severity)
+m2=counting(  new$category,new$severity)
+m2$severity= rownames(m2)
+#m2=m2[c(1,7,4,5,2,8,6,3),]
+##
+bp=reshape2::melt(m2, "severity")
+#######
+bp=bp %>%
+    arrange(match(variable, c("IgM-/IgG-", "IgM++/IgG+", "IgM+/IgG-", "IgM+/IgG+", "IgM-/IgG+", "IgM++/IgG++", "IgM+/IgG++", "IgM-/IgG++"), desc(severity), desc(value)))
+##
+name=c("IgM-/IgG-", "IgM++/IgG+", "IgM+/IgG-", "IgM+/IgG+", "IgM-/IgG+", "IgM++/IgG++", "IgM+/IgG++", "IgM-/IgG++")
+bp2=bp[order(match(bp$variable, name)),]
+bp$variable <- factor(bp$variable,                                    # Change ordering manually
+                  levels = name)
+g=ggplot(bp 
+         , aes(fill=severity, y=value, x=variable)) + 
+    geom_bar(stat="identity") +theme (axis.text.x = element_text(size=12, family = "Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family = "Helvetica", colour = "black"),legend.text = element_text(face = "bold"),
+  panel.grid.major = element_blank(),panel.border = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank() ) + scale_fill_manual(values=c("red", "darkgreen", "orange"))
+  
+  
+ggsave(filename=paste0("BAPLOT_IGAIGMgroups_Correct_",Sys.Date() ,".svg"), plot=g, device="svg", height=10, width=9, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+
+##
+nbr=round(table(new$category)/ nrow(new),3)* 100
+write.csv(nbr, paste0(path, "Table_Groups.csv"))
+
+ mm = apply(mm,2,function(x){round(x/sum(x),3) * 100})
+write.csv(mm, paste0(path, "Table_Severity_Groups.csv"))
+```
+
+START WITH NEW2:
+```{r}
+new$category=gsub(" ", "/", new$category)
+library(tidyverse)
+annotation=new[,c(7,14)] %>% as.data.frame()
+rownames(annotation)=rownames(new)
+annotation=annotation %>% rownames_to_column(., "patient")
+####
+annotation=annotation %>%
+    arrange(match(category, c("IgM-/IgG-","IgM+/IgG-", "IgM++/IgG+","IgM-/IgG+",
+                              "IgM-/IgG++" , "IgM+/IgG+" , 
+                              "IgM+/IgG++" ,"IgM++/IgG++"), desc(time), desc(patient)))
+rownames(annotation)= annotation$patient
+##
+#annotation= annotation %>% column_to_rownames(., var="patient")
+annotation$time=as.numeric(as.character(annotation$time))
+
+annotation$category=as.factor(annotation$category)
+##
+col= list(category=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ),time= c("white", "firebrick"))
+#
+new_ordered <- new[rownames(annotation), ]
+annotation=annotation[,-1]
+p=pheatmap(new_ordered[,1:4], annotation_row = annotation, show_rownames=F, cluster_rows = F, angle_col = 45, scale="none", annotation_colors  = col, breaks = mat_breaks)
+
+ggsave(filename=paste0("HEATMAP_CATEGORIES_categoryategory_NewGroups_Final°",Sys.Date() ,".svg"), p, device="svg",height=10, width=10, units="in", dpi=500, path=path)
+```
+
+```{r}
+d= as.data.frame(table(new$category))
+d$Freq= round(d$Freq/sum(d$Freq),3)*100
+
+d$ymax = cumsum(d$Freq)
+d$ymin = c(0, head(d$ymax, n=-1))
+d$Var1=as.factor(d$Var1)
+g=ggplot(data = d, 
+       aes(x = 2, y = Freq, fill = Var1))+
+  geom_bar(stat = "identity")+
+  coord_polar("y", start = 400) +
+ # geom_text(aes(y = Freq, label = paste(Freq,"%", sep = "")), col = "white") +
+   theme_void() +
+   scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))+
+   xlim(.2,2.5)
+ggsave(filename=paste0("DONUT_Groups_",Sys.Date(),".svg"), plot=g, device="svg",
+       path= path, height=6, width=6, units="in", dpi=500)  
+```
+
+```{r}
+range <- max(abs(new_ordered[,1:4]));
+pheatmap(new_ordered[,1:4], breaks = seq(-range, range, length.out = 100))
+```
+
+
+PLOT THE GROUPS ORDERING BY TIME:
+```{r}
+e <- ggplot(new_ordered,aes(x = category, y = time, fill=category, group=category))+ 
+  geom_dotplot(binaxis='y', stackdir='center',binwidth = 0.5, aes(x = fct_reorder(category, -time,.fun=mean, .desc =TRUE), y = time)) +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="pointrange", color="red", shape=1) +theme (axis.text.x = element_text(size=12, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())+ scale_color_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+
+ggsave(filename=paste0("Reorder_Groups_Time_NewGroups_",Sys.Date() ,".svg"), e, device="svg",height=9, width=9, units="in", dpi=500, path=path)
+
+```
+
+
+```{r}
+path="/Users/equipe.soumelis/Desktop/Paper-Serum/"
+e <- ggplot(new_ordered,aes(category, y = time, fill=category, group=category))+ 
+  geom_dotplot(binaxis='y', stackdir='center',binwidth = 0.5, aes(x = reorder(category,time, mean), y = time,fill=category, group=category)) +
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="point", color="red", shape= 95, size= 10) +
+ # stat_summary(fun.y=mean, geom="line", color="red",shape="-",size=3)+
+  theme (axis.text.x = element_text(size=10, family="Helvetica", colour = "black", angle = 45, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())+ scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+
+ggsave(filename=paste0("Reorder_Groups_Time_NewGroups_CORRECT_",Sys.Date() ,".svg"), e, device="svg",height=7, width=10, units="in", dpi=500, path=path)
+```
+
+PLOT HKU1 AND OC43
+
+```{r}
+rownames(mat)= paste0("row_", 1:nrow(mat))
+new= new[order(match(rownames(new), rownames(mat))),]
+all(rownames(new)== rownames(mat))
+mat$category= new$category
+```
+
+```{r}
+library(tidyverse)
+library(rstatix)
+library(ggpubr)
+library(ggsignif)
+B=ggplot(mat, aes(x = reorder(category,`IGG_HK-U1`) , y = `IGG_HK-U1`, 
+          fill = category, group=category), 
+          ylab = "`IGG_HK-U1`", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 1)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1),  geom="point", color="red", shape= 95, size= 10) + 
+theme (axis.text.x = element_text(size=10, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())  +
+  stat_compare_means(method="wilcox.test",comparisons = list(c("IgM+/IgG-", "IgM+/IgG++")))+ scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+##
+C=ggplot(mat, aes(x= category , y = `IGG_OC-43`,fill = category, group=category), 
+          ylab = "IGG_OC-43", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 2)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="point", color="red", shape= 95, size= 10)+
+ theme (axis.text.x = element_text(size=10, family= "Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family= "Helvetica", colour = "black"),legend.text = element_text(family= "Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank()) +
+  stat_compare_means(method="wilcox.test",comparisons = list(c("IgM+/IgG-", "IgM+/IgG++")))+ scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+ # stat_compare_means(method="wilcox.test",comparisons = asplit(combn(levels(as.factor(mat$category)),2), 2))
+
+##
+#a= ggarrange(B,C, ncol = 2, nrow=1)
+ggsave(filename=paste0("GGPLOT_BENIN_COV_IGG_Categories_OC_",Sys.Date() ,".svg"), C, device="svg",height=7, width=14, units="in", dpi=500, path=path)
+```
+
+```{r}
+B=ggplot(mat, aes(x = reorder(category,-`IGG_HK-U1`) , y = `IGG_HK-U1`, 
+          fill = category, group=category), 
+          ylab = "`IGG_HK-U1`", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 1)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="pointrange", color="red", shape=1) + 
+theme (axis.text.x = element_text(size=12, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())  +
+  scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))  +
+  stat_compare_means(method="wilcox.test",comparisons = asplit(combn(levels(as.factor(mat$category)),2), 2), aes(label= ..p.adj..))
+##
+ggsave(filename=paste0("GGPLOT_BENIN_COV_IGG__STAT_",Sys.Date() ,".svg"), B, device="svg",height=10, width=10, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+#######
+
+C=ggplot(mat, aes(x= reorder(category,-`IGG_OC-43`) , y = `IGG_OC-43`,fill = category, group=category), 
+          ylab = "IGG_OC-43", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 2)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="pointrange", color="red", shape=1)+
+ theme (axis.text.x = element_text(size=12, family= "Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family= "Helvetica", colour = "black"),legend.text = element_text(family= "Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank()) +
+  scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" )) +
+ stat_compare_means(method="wilcox.test",comparisons = asplit(combn(levels(as.factor(mat$category)),2), 2), aes(label= ..p.adj..))
+
+ggsave(filename=paste0("GGPLOT_BENIN_COV_IGG_OC_STAT_",Sys.Date() ,".svg"), B, device="svg",height=10, width=6, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+```{r}
+dt2= mat[,c(6,10,33)]
+dm=melt(dt2)
+
+p=ggboxplot(dm, x = "severity", y = "value", 
+          color = "variable", 
+          ylab = "titer values", xlab = "Severity") + 
+ theme (axis.text.x = element_text(size=12, family= "Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family= "Helvetica", colour = "black"),legend.text = element_text(family= "Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank(), legend.position = "right") 
+###
+ggsave(filename=paste0("BOXPLOT_SARSCOV2_",Sys.Date() ,".svg"), p, device="svg",height=8, width=8, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+
+wilcoxon paired test
+```{r}
+comp=pairwise.wilcox.test(x, g, p.adjust.method = p.adj= "bonf",
+                      paired = FALSE)
+```
+
+```{r}
+mat2=mat
+mat2= mat2[order(match(mat2$category, name)),]
+mat2= mat2[,c(7,31)]
+foo <- pairwise.wilcox.test(mat2$`IGG_OC-43`, mat2$category, p.adjust.method="bonferroni", paired = F) 
+
+write.csv(foo$p.value, "/Users/equipe.soumelis/Desktop/OC43_comp-Bonferroni.csv" )
+
+foo2 <- pairwise.wilcox.test(mat2$`IGA_HK-U1`, mat2$category, p.adjust.method="bonferroni") 
+
+write.csv(foo2$p.value, "/Users/equipe.soumelis/Desktop/HKU1_comp-Bonferroni.csv" )
+```
+
+```{r}
+pv=foo$p.value
+melted_cormat=get_lower_tri(pv)
+library(reshape2)
+melted_cormat <- melt(melted_cormat, na.rm = T)
+
+melted_cormat$value2= -log10(melted_cormat$value)
+
+#,mid = "white",midpoint = , 
+p=ggplot(data = melted_cormat, aes(Var2, Var1, fill = value2))+
+ geom_tile(color = "white")+ #
+ scale_fill_gradient2(low = "blue", high = "red",limit = c(0,10), space = "Lab",midpoint = 1.5,
+   name="-log10(Adjusted-Pvalues)") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1, colour = "black", family = "Helvetica"),axis.text.y = element_text(size=8,  colour = "black", angle= 0,"Helvetica") )+ 
+ coord_fixed()  
+
+ggsave(filename=paste0("OC43_AjustedPval_Heatmap_",Sys.Date() ,".svg"), p, device="svg",height=8, width=8, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+```{r}
+foo2 <- pairwise.wilcox.test(mat$`IGA_HK-U1`, mat$category, p.adjust.method="bonferroni") 
+##
+pv=foo2$p.value
+melted_cormat=get_lower_tri(pv)
+library(reshape2)
+melted_cormat <- melt(melted_cormat, na.rm = T)
+
+melted_cormat$value2= -log10(melted_cormat$value)
+
+#,mid = "white",midpoint = , 
+p=ggplot(data = melted_cormat, aes(Var2, Var1, fill = value2))+
+ geom_tile(color = "white")+ #
+ scale_fill_gradient2(low = "blue", high = "red",limit = c(0,10), space = "Lab",midpoint = 1.5,
+   name="-log10(Adjusted-Pvalues)") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1, colour = "black", family = "Helvetica"),axis.text.y = element_text(size=8,  colour = "black", angle= 0,"Helvetica") )+ 
+ coord_fixed()  
+
+ggsave(filename=paste0("HKU1_AjustedPval_Heatmap_",Sys.Date() ,".svg"), p, device="svg",height=8, width=8, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+```{r}
+foo3 <- kruskal.test(mat$time, mat$category, p.adjust.method="bonferroni")
+foo4=  pairwise.wilcox.test(mat$time, mat$category, p.adjust.method="bonferroni") 
+##
+pv=foo4$p.value
+melted_cormat=get_lower_tri(pv)
+library(reshape2)
+melted_cormat <- melt(melted_cormat, na.rm = T)
+
+melted_cormat$value2= -log10(melted_cormat$value)
+
+#,mid = "white",midpoint = , 
+p=ggplot(data = melted_cormat, aes(Var2, Var1, fill = value2))+
+ geom_tile(color = "white")+ #
+ scale_fill_gradient2(low = "blue", high = "red",limit = c(0,10), space = "Lab",midpoint = 1.5,
+   name="-log10(Adjusted-Pvalues)") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1, colour = "black", family = "Helvetica"),axis.text.y = element_text(size=8,  colour = "black", angle= 0,"Helvetica") )+ 
+ coord_fixed()  
+
+ggsave(filename=paste0("Time_AjustedPval_Heatmap_",Sys.Date() ,".svg"), p, device="svg",height=8, width=8, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+
+
+```{r}
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+melted_cormat=get_upper_tri(pv)
+library(reshape2)
+melted_cormat <- melt(melted_cormat, na.rm = T)
+library(ggplot2)
+#lab= rep(c(rep("COV2", 5), rep("COVA",2), rep("COVB", 2)),42)
+p=ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab",
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1, colour = "black", family = "Helvetica"),axis.text.y = element_text(size=8,  colour = "black", angle= 0,"Helvetica") )+ 
+ coord_fixed()  
+
+#+ geom_vline(xintercept = c(9.5,18.5), color= "black", size=1.5) 
+#+ geom_vline(xintercept = c(5.5,7.5,14.5,16.5,23.5,25.5), color= "blue", size=1) 
+#, panel.grid.major = element_blank(), , panel.background = element_blank()
+#+ geom_text(aes(colour=lab, label=Var1),) +
+   # scale_colour_manual(values=c("red", "purple", "darkgreen"))
+
+dev.off()
+ggsave(filename=paste0("Pheatmap_Correlation_Test_IgA_",Sys.Date() ,".svg"), plot=p, device="svg", path="/Users/equipe.soumelis/Desktop/Paper-Serum/",height=10, width=10, units="in", dpi=500)
+```
+
+isolate the IgG++ patients and compare their OC43 values with double neg:
+```{r}
+mat$time=as.numeric(as.character(mat$time))
+mat$state= ifelse(mat$time <= 12, "early", "late")
+tardif= mat[which(mat$state == "early"),]
+##
+trd2= tardif[which(tardif$time <=12),]
+```
+
+```{r}
+B=ggplot(tardif, aes(x = reorder(category,-`IGG_HK-U1`) , y = `IGG_HK-U1`, 
+          fill = category, group=category), 
+          ylab = "`IGG_HK-U1`", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 1)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1),  geom="point", color="red", shape= 95, size= 10) + 
+theme (axis.text.x = element_text(size=10, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())  +
+  stat_compare_means(method="wilcox.test",comparisons = list(c("IgM+/IgG-", "IgM+/IgG++")))+ scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+##
+C=ggplot(tardif, aes(x= reorder(category, -`IGG_OC-43`) , y = `IGG_OC-43`,fill = category, group=category), 
+          ylab = "IGG_OC-43", xlab = "EarlyGroups")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 2)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="point", color="red", shape= 95, size= 10)+
+ theme (axis.text.x = element_text(size=10, family= "Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family= "Helvetica", colour = "black"),legend.text = element_text(family= "Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank()) +
+  stat_compare_means(method="wilcox.test",comparisons = list(c("IgM+/IgG-", "IgM+/IgG++")))+ scale_fill_manual(values=c( "IgM-/IgG+"="#FC4E07", "IgM+/IgG-"="#E41A1C","IgM+/IgG+"= "#377EB8","IgM+/IgG++"= "#4DAF4A","IgM-/IgG++"= "#00AFBB", "IgM++/IgG+"="#FF7F00","IgM++/IgG++"= "#A65628","IgM-/IgG-"="#A750A0" ))
+
+#######
+ggsave(filename=paste0("HKU1_Early_Early_13_",Sys.Date() ,".svg"), B, device="svg",height=6, width=10, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+##
+ggsave(filename=paste0("OC43_Early_13_",Sys.Date() ,".svg"), C, device="svg",height=6, width=10, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+```{r}
+foo <- pairwise.wilcox.test(tardif$`IGG_OC-43`, tardif$category, p.adjust.method="bonferroni") 
+
+write.csv(foo$p.value, "/Users/equipe.soumelis/Desktop/OC43_comp_Early_BONF.csv" )
+
+foo2 <- pairwise.wilcox.test(tardif$`IGA_HK-U1`, tardif$category, p.adjust.method="bonferroni") 
+
+write.csv(foo2$p.value, "/Users/equipe.soumelis/Desktop/HKU1_comp-Early-BONF.csv" )
+```
+
+```{r}
+pv=foo2$p.value
+melted_cormat=get_lower_tri(pv)
+library(reshape2)
+melted_cormat <- melt(melted_cormat, na.rm = T)
+
+melted_cormat$value2= -log10(melted_cormat$value)
+
+#,mid = "white",midpoint = , 
+p=ggplot(data = melted_cormat, aes(Var2, Var1, fill = value2))+
+ geom_tile(color = "white")+ #
+ scale_fill_gradient2(low = "blue", high = "red",limit = c(0,10), space = "Lab",midpoint = 1.5,
+   name="-log10(Adjusted-Pvalues)") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1, colour = "black", family = "Helvetica"),axis.text.y = element_text(size=8,  colour = "black", angle= 0,"Helvetica") )+ 
+ coord_fixed()  
+
+ggsave(filename=paste0("HKU1_AjustedPval_Heatmap_EARLY_",Sys.Date() ,".svg"), p, device="svg",height=8, width=8, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+
+IgM précoces :
+
+IgM-/IgG-
+
+IgM++/IgG+
+
+IgM+/IgG-
+
+ 
+
+IgGprécoce
+
+IgM++/IgG++
+
+IgM-/IgG++
+
+IgM+/IgG++
+create a new category:
+```{r}
+new$group= ifelse(new$category %in% c("IgM-/IgG-", "IgM++/IgG+","IgM+/IgG-"), "Early IgM response", ifelse( new$category %in% c("IgM++/IgG++", "IgM-/IgG++","IgM+/IgG++"), "Early IgG response", new$category))
+##
+all(rownames(new)== rownames(mat))
+mat$group=new$group
+mat2= mat %>% filter(., group== c("Early IgM response", "Early IgG response"))
+```
+
+```{r}
+B=ggplot(mat2, aes(x = reorder(group,-`IGG_HK-U1`) , y = `IGG_HK-U1`, 
+          fill = group, group=group), 
+          ylab = "`IGG_HK-U1`", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 1)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="point", color="red", shape= 95, size= 10) + 
+theme (axis.text.x = element_text(size=12, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())  +
+  scale_fill_manual(values=c( "Early IgM response"="#FC4E07", "Early IgG response"="#A750A0" ))  +
+  stat_compare_means(method="wilcox.test",comparisons = c("Early IgM response", "Early IgG response"))
+##
+ggsave(filename=paste0("HK_2Groups_NEW_",Sys.Date() ,".svg"), B, device="svg",height=10, width=10, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+#######
+C=ggplot(mat2, aes(x= reorder(group,-`IGG_OC-43`) , y = `IGG_OC-43`, 
+          fill = group, group=group), 
+          ylab = "`IGG_HK-U1`", xlab = "Group_ID")+ geom_dotplot(binaxis='y', stackdir='center',binwidth = 4, dotsize = 2)+ 
+ stat_summary(fun.data=mean_sdl, fun.args = list(mult = 1), geom="point", color="red", shape= 95, size= 10) + 
+theme (axis.text.x = element_text(size=12, family="Helvetica", colour = "black", angle = 30, hjust = 1),axis.text.y = element_text(size=10, family="Helvetica", colour = "black"),legend.text = element_text(family="Helvetica") ,axis.line = element_line(colour = "black"),panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), panel.background = element_blank())  +
+ scale_fill_manual(values=c( "Early IgM response"="#FC4E07", "Early IgG response"="#A750A0" ))  +
+  stat_compare_means(method="wilcox.test",comparisons = c("Early IgM response", "Early IgG response"))
+#######
+
+ggsave(filename=paste0("OC43_2GROUPS_NEW_",Sys.Date() ,".svg"), C, device="svg",height=10, width=10, units="in", dpi=500, path="/Users/equipe.soumelis/Desktop/Paper-Serum/")
+```
+
+```{r}
+foo <- pairwise.wilcox.test(mat2$`IGG_OC-43`, mat2$group, p.adjust.method="bonf")  #6.5e-10  
+
+foo <- pairwise.wilcox.test(mat2$`IGG_HK-U1`, mat2$group, p.adjust.method="bonf") #4.4e-10     
+```
+
+```{r}
+cmat= as.data.frame(cor(mat[,1:27]))
+```
+
+save the objects:
+```{r}
+write.csv(mat, "/Users/equipe.soumelis/Desktop/Paper-Serum/FINAL MATRIX_CATEGORIES_SEVERITY_ELIgResponse.csv")
+
+write.csv(tardif, "/Users/equipe.soumelis/Desktop/Paper-Serum/EARLY_TIMEPOINT_Threshold13.csv")
+
+write.csv(cmat, "/Users/equipe.soumelis/Desktop/Paper-Serum/CORRELATION_MATRIX_IgAGM.csv")
+```
+
