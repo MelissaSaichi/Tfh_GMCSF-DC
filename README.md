@@ -21,3 +21,38 @@ has .png figures generated during the analysis
 -### TB_Tfh: Analysis performed on the Tuberculosis Microarray Berry London dataset
 - ### Manuscript: Cell reports output file 
 
+ Folder architecture
+ 
+ 
+
+├── GEO_Submission_scRNAseq_polarized_CD4Tcells
+│   ├── Metadata
+│   ├── Processed_Data
+│   │   ├── Raw_Matrices
+│   │   └── Seurat_Objects
+│   └── Raw_Data
+├── Manuscript
+│   ├── Figures_Paper
+│   └── Paper\ Korniotis\ et\ al.\ Tfh1\ -\ Submission\ next\ Tuesday
+├── PublicDatasets_Analysis
+│   ├── PBMC_COVID19_scRNAseq
+│   │   ├── Analysis_Files
+│   │   ├── Figures
+│   │   ├── Script
+│   │   └── Seurat_Rds
+│   └── Tuberculosis_BerryLondon_Dataset
+│       ├── Articles
+│       ├── Figures_Analysis
+│       └── Script
+└── scRNAseq_CD4Tcells_activated
+    ├── Analysis_GMCSF
+    │   ├── Figures
+    │   └── Seurat_Rds
+    ├── Analysis_LPS
+    │   ├── Figures
+    │   └── Seurat_Rds
+    ├── Analysis_MEDIUM
+    │   ├── Figures
+    │   └── Seurat
+    └── Global_Scripts
+
