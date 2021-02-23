@@ -1,0 +1,1429 @@
+---
+title: "DC_datasetHIV"
+author: "Melissa"
+date: "18 mars 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F)
+```
+
+load the dataset and check for the correlation between P1, p2, P3, and the helathy individuals
+```{r}
+library(readxl)
+hiv <- read_excel("~/PROJECTS/DC_HIVdatasets/HIV-TB5-rpkm.xlsx")
+dc <- read_excel("~/PROJECTS/TFh_CD4_GMCSF/RNAsequencing/RNAseq/RNAsec DCs/RNAseq_HighvsLow_all_detectable_genes_Korniotis_07012018.xlsx")
+annot=data.frame(c("P1-a", "P2-a", "P3-a", "H1-a", "H2-a"),c(rep(c("case", "control"),c(3,2)))); colnames(annot)=c("Sample","Condition")
+
+
+
+
+library(biomaRt)
+#mart<- useDataset("hsapiens_gene_ensembl", useMart("ENSEMBL_MART_ENSEMBL"))
+mart <- useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+
+gID=getBM(attributes = c("chromosome_name",  "hgnc_symbol","ensembl_gene_id"), mart=mart)
+
+
+ad=before[which(before$gene %in% gID$hgnc_symbol),]
+
+
+hgnc_symbol=ad$gene
+ad=cbind(ad, hgnc_symbol)
+ad=merge(ad, gID, by="hgnc_symbol")
+mat.count=ad[-which(duplicated((ad$ensembl_gene_id))),]
+
+rownames(mat.count)=mat.count$ensembl_gene_id
+
+mat.count=mat.count[,-c(1,7:9)]
+
+colnames(before)= c("A_1_Rep1"," A_1_Rep2", "A_1_Rep3", "B_1_Rep1", "B_1_Rep2", "gene")
+
+lsSimulatedData$matObservedCounts=mat.count
+
+lsSimulatedData$matObservedCounts=apply(lsSimulatedData$matObservedCounts, 2, round)
+
+objectImpulseDE2 <- runImpulseDE2(
+  matCountData    =  lsSimulatedData$matObservedCounts, 
+  dfAnnotation    = lsSimulatedData$dfAnnotation,
+  boolCaseCtrl    = TRUE,
+  vecConfounders  = NULL,
+  scaNProc        = 1)
+
+
+library(DESeq2)
+ condition= factor(rep(c("Case", "Control"), c(3,2)))
+
+dds <- DESeqDataSetFromMatrix(countData = round(mat.count),
+                              colData = annot,
+                              design= ~ Condition)
+dds$Condition= relevel(dds$Condition, "control")
+dds <- DESeq(dds)
+resultsNames(dds) # lists the coefficients
+res <- results(dds, name="Condition_case_vs_control")
+
+resOrdered <- res[order(res$pvalue),]
+
+sum(res$padj < 0.05, na.rm=TRUE)
+
+res05 <- results(dds, alpha=0.05)
+
+# or to shrink log fold changes association with condition:
+BiocManager::install("apeglm")
+library(apeglm)
+ress<- lfcShrink(dds, coef="Condition_case_vs_control", type="apeglm")
+```
+```{r}
+resOrdered <- res[order(res$pvalue),]
+difexp=as.data.frame(resOrdered)
+#pr=difexp$log2FoldChange * difexp$padj
+difexp$pr=difexp$log2FoldChange * difexp$padj
+
+difexp= na.omit(difexp)
+
+difexp$ensembl_gene_id=rownames(difexp)
+rn=gID[which(gID$ensembl_gene_id %in% difexp$ensembl_gene_id),]
+
+difexp=merge(difexp, rn, by="ensembl_gene_id")
+
+difexp=difexp[which(difexp$pvalue< 0.05),]
+#high in cases:
+hcase= difexp[which(difexp$log2FoldChange>1),]
+
+hcase=hcase[-which (hcase$chromosome_name %in% (grep("CHR", hcase$chromosome_name, value = T))),]
+
+rownames(hcase)= hcase$hgnc_symbol
+ hcase=hcase[,-c(1,8,9)]
+
+```
+
+```{r}
+ dcLow= dc[which(dc$Foldchange <(-1)),]
+
+ intersect(rownames(hcase), dcLow$Gene_symbol)
+ View(dcLow)
+View(before)
+
+#Add the information about the gene expression values on the highly expressed genes in cases:
+ before2= before[which(before$gene %in% rownames(hcase)),] #keep genes found in 
+ View(before2)
+ hcase$gene=rownames(hcase)
+ hcase= merge(before2, hcase, by="gene")
+ rownames(hcase)=hcase$gene
+```
+
+```{r}
+ dcHigh= dc[which(dc$Foldchange > 1),]
+
+ intersect(rownames(hcase), dcHigh$Gene_symbol)
+ gm=hcase[which(rownames(hcase) %in% gi),-c(1,7:12)]
+ rownames(dcLow)=dcLow$Gene_symbol
+ annot=as.data.frame(rownames(gm))
+ annot$source= ifelse(rownames(gm) %in% rownames(dcLow), "DC_Low", "DC_High")
+ colnames(annot)=c("gene", "source")
+rownames(annot)=annot$gene
+```
+
+
+Attribute some scores to the individuals for ICOSL high or LOW:
+
+```{r}
+hcase=merge(hcase, annot, by="gene")
+rownames(hcase)=hcase$gene
+dt=hcase[,c(2:6,13)]
+
+dt2=aggregate(dt[,1:5], by=list(dt$source), FUN=mean)
+rownames(dt2)=dt2$Group.1
+dt2=dt2[,-1]
+dt2=as.data.frame(t(dt2), row.names = colnames(dt2))
+dt2$Condition= rep(c("Case", "Control"), c(3,2))
+library(ggplot2)
+
+ggplot(dt2)+ geom_point(aes(x= DC_High, y= DC_Low, color= Condition),stat = "identity")
+
+res.pca=PCA(dt, ncp=5, quali.sup=6, graph=F) #
+plot(res.pca, habillage = 6)
+
+```
+
+```{r}
+colnames(dt)=c("case1","case2","case3","cntr1","cntr2","source")
+comp= list(c("DC_Low", "DC_High"))
+library(reshape2)
+data=melt(dt)
+
+library(ggpubr)
+ggplot(data, aes(x=variable, y= value, fill= source))+
+  geom_boxplot()  + 
+    coord_cartesian(ylim = c(0, 250)) +
+
+  stat_compare_means(comparisons = comp,method = "t.test", aes(label=..p.adj..))+ stat_compare_means(label.y = 250)
+
+
+```
+
+	
+GSE122084	Prediction of bacterial infection outcome using single cell RNA-seq analysis of human immune cells
+GSE132300	Prediction of bacterial infection outcome using single cell RNA-seq analysis of human immune cells [scRNA-seq ind. 2]
+
+download the scRNAseq datasets of exposed and non exposed samples:
+```{r}
+exposedcells=read.table(gzfile("~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/GSE122084_RAW/GSM3454529_Salmonella_exposed_cells.txt.gz"),sep="\t", header = T)
+exposedcells$genes= make.unique(as.character(exposedcells$genes))
+ rownames(exposedcells)=exposedcells$genes
+ exposedcells=exposedcells[,-1]
+                       
+expo2=read.table(gzfile("~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/GSE122084_RAW/GSM3855868_Salmonella_exposed_cells.txt.gz"),sep="\t")                       
+                       
+# expo3= read.table(gzfile("~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/GSE132300_data_matrix.txt.gz"), sep="\t" )  #=expo2     
+ 
+ naive=  read.table(gzfile("~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/GSE122084_RAW/GSM3454528_naive_cells.txt.gz"), sep="\t" , header = T)
+ naive$genes= make.unique(as.character(naive$genes))
+ rownames(naive)=naive$genes
+ naive=naive[,-1]
+```
+
+Creation of the seurat object:
+```{r}
+library(Seurat)
+naive.dat= CreateSeuratObject(naive, min.cells = 10, min.genes = 10, project = "naive")
+infected.dat= CreateSeuratObject(exposedcells, min.cells = 10, min.genes = 10, project = "infected")
+
+seurd= MergeSeurat(naive.dat, infected.dat, do.normalize = T, add.cell.id1 = "Naive", add.cell.id2 = "Infected")
+#evaluate the percentage of mito genes:
+mitog<- grep(pattern = "^MT-", x = rownames(x = seurd@data), value = TRUE)
+per.mito <- Matrix::colSums(seurd@raw.data[mitog, ])/Matrix::colSums(seurd@raw.data)
+#per.mito
+seurd<- AddMetaData(object = seurd, metadata = per.mito, col.name = "percent.mito")
+VlnPlot(object=seurd, c("nGene", "nUMI","percent.mito")) 
+#seur <- NormalizeData(object = seur, normalization.method = "LogNormalize", scale.factor = 10000)
+seurd<- FindVariableGenes(object = seurd, mean.function = ExpMean, 
+                         dispersion.function = LogVMR,  
+                         x.low.cutoff = 0.1,
+                         x.high.cutoff = 7.5, 
+                         y.cutoff = 0.5, do.plot = T)
+
+seurd<- ScaleData(object = seurd, display.progress = FALSE,vars.to.regress = c("nUMI", "percent.mito", "nGene"))
+seurd <- RunPCA(object = seurd, pcs.print = 1:2, genes.print = 20)
+
+PCAPlot(seurd, 1, 2)
+
+PCHeatmap(seurd, pc.use = 1:3, cells.use = 1000, do.balanced = TRUE)
+
+seurd <- FindClusters(object = seurd, reduction.type = "pca", dims.use = c(1:20), k.param = 30,
+    resolution = 1.0, print.output = 0, save.SNN = TRUE, force.recalc = TRUE)
+#PrintFindClustersParams(SKNSH2)
+seurd <- RunTSNE(object =seurd, dims.use = c(1:20), do.fast = TRUE, perplexity=50)
+TSNEPlot(object =seurd,do.label=T)
+```
+
+```{r}
+seurd <- RunPHATE(object = seurd, gamma=0, k = 4, t = 5,alpha=NULL, genes.use =seurd@var.genes, reduction.name = "phate") 
+seurd=RunUMAP(object=seurd, cells.use = NULL, reduction.use = "pca", n_neighbors = 30,
+  genes.use = seurd@var.genes, assay.use = "RNA", max.dim = 2L, min_dist= 0.5,
+  reduction.name = "umap" ,umap.method = "umap-learn")
+```
+
+```{r}
+ DC.cluster=SubsetData(seurd, ident.use = "15")
+dcLowgenes= dcLow[order(dcLow$Foldchange, decreasing = F),]
+dcLowgenes=dcLowgenes[1:10,1]
+ dcLowgenes=list(as.matrix(dcLowgenes))
+
+seurd=AddModuleScore(seurd, enrich.name = "DC_LOW", genes.list = dcLowgenes)
+```
+
+```{r}
+dcHigh= list(as.matrix(dc[1:10,1]))
+seurd=AddModuleScore(seurd, enrich.name = "DC_HIGH", genes.list = dcHigh)
+```
+need to correct for dropout:
+```{r}
+library(Rmagic)
+
+td=t(seurd@data)
+td=as.matrix(td)
+
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21","TBX21","GATA3","RORC","FOXP3","MAF","CCR6","CXCR3","IFNG","TNF","IL4","IL13","IL17A","CXCL13","IL5", "IL13", "CXCL13","TNFA", "IL17F", "FOXP3",   "STAT6", "IRF4", "BATF", "NFAT1","IL10", "CCR4", "GZMA", "OX40", "CD200")
+
+
+
+g=unname(c(unlist(dcLowgenes), unlist(dcHigh)))
+
+mobj=magic(td, genes=g,k=10, t="auto", n.jobs = -2 )
+mgm2=mobj$result
+uem=GetCellEmbeddings(seurd, reduction.type = "umap")
+pem= GetCellEmbeddings(new, reduction.type = "phate")
+mgm2=cbind(pem, mgm2)
+mgm2=cbind(mgm2, uem)
+library(ggplot2)
+library(viridis)
+
+A=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= BCL6))+
+  scale_color_viridis(option = "B")
+
+
+B=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= PDCD1))+
+  scale_color_viridis(option = "B")
+
+C=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= CXCR5))+
+  scale_color_viridis(option = "B")
+
+D=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= ICOS))+
+  scale_color_viridis(option = "B")
+
+```
+```{r}
+c14= FindMarkers(seurd, ident.1 = 14, ident.2 = NULL, min.pct = 0.15, only.pos = T, min.diff.pct = 0.1)
+```
+
+
+Assign cell types using canonical markers:
+
+CD8 T cells: 0, 1, 2
+NK cells: 3
+DC cells: 15
+B cells: 5, 6, 11
+Monocytes: 10, 12, 13
+CD4 T cells: 4,7,8,9
+```{r}
+new.ids= c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
+current.ids= c(rep("CD8T", 3), "NK", "CD4T",rep("B", 2), rep("CD4T", 3), "MONOCYTES", "B", rep("MONOCYTES", 2), "NKT", "DC")
+library(plyr)
+seurd@ident= plyr::mapvalues(x=seurd@ident, from = current.ids, to= new.ids)
+seurd@ident= as.factor(seurd@meta.data$res.1)
+
+c15= FindMarkers(seurd, ident.1 = 15, ident.2 = NULL, min.pct = 0.15, only.pos = T, min.diff.pct = 0.2, logfc.threshold = 0.3)
+```
+
+ISOLATE CD4 Tcells
+```{r}
+cd4= SubsetData(seurd, ident.use = "CD4T") #12681 genes across 1754 samples.
+tfh= list(c("BCL6", "PDCD1","CXCR5","ICOS", "CXCL13"))
+cd4=AddModuleScore(cd4, enrich.name = "TFH", genes.list = tfh)
+ cd4@meta.data$TFHState=ifelse(cd4@meta.data$TFH1> 0.1, "TFHpos", "TFHneg")
+table(cd4@meta.data$TFHState, cd4@meta.data$orig.ident)
+
+tfhstate=as.data.frame(cbind( cd4@meta.data$orig.ident, cd4@meta.data$TFH1))
+colnames(tfhstate)=c("State", "TFHScore")
+
+library(reshape2)
+tfhstate=melt(tfhstate)
+
+library(ggpubr); library(ggplot2)
+#, "#FC4E07"
+tfhstate$TFHScore=as.numeric(as.character(tfhstate$TFHScore))
+comp=list(c("naive", "infected"))
+
+ggboxplot(tfhstate, x = "State", y = "TFHScore", color="State") + 
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  theme_minimal() + ggtitle("Distribution of TFH score between Naive & Infected cells") +
+  stat_compare_means(comparisons = comp)+ stat_compare_means(label.y = 0.1)
+
+
+
+library(Rmagic)
+
+td=t(cd4@data)
+td=as.matrix(td)
+
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21","TBX21","GATA3", "CXCL13" ,"CD200", "IFNG", "TBX21", "TNF")
+
+
+
+g=unname(c(unlist(dcLowgenes), unlist(dcHigh)))
+
+mobj=magic(td, genes=g,k=10, t="auto", n.jobs = -2 )
+mgm2=mobj$result
+uem=GetCellEmbeddings(cd4, reduction.type = "umap")
+
+mgm2=cbind(mgm2, uem)
+library(ggplot2)
+library(viridis)
+
+A=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= TBX21))+
+  scale_color_viridis(option = "B")
+
+
+B=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= IFNG))+
+  scale_color_viridis(option = "B")
+
+C=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= TNF))+
+  scale_color_viridis(option = "B")
+
+library(ggpubr)
+res= ggarrange(A,B,C, nrow = 1, ncol = 3)
+
+cd4t=cd4
+#cd4= SetIdent(cd4, cells.use = NULL, ident.use = TFHState)
+th1=list(c("TNF", "IFNG","TBX21"))
+
+cd4= AddModuleScore(cd4, genes.list = th1, enrich.name = "TH1")
+
+VlnPlot(cd4, "TH11", group.by = "TFHState")
+VlnPlot(cd4, "TH11", group.by = "orig.ident")
+
+VlnPlot(cd4, "TH11", group.by = "orig.ident")
+
+length(which(cd4@meta.data$TH11>0.25 & cd4@meta.data$TFHState=="TFHpos"))
+#[1] 13
+length(which(cd4@meta.data$TH11>0.25 & cd4@meta.data$TFHState=="TFHneg"))
+#[1] 27
+length(which(cd4@meta.data$TFHState=="TFHneg"))
+
+cd4@meta.data$TH1State= ifelse(cd4@meta.data$TH11>0.25, "TH1pos", "TH1neg")
+
+table( cd4@meta.data$TFHState, cd4@meta.data$TH1State, cd4@meta.data$orig.ident)
+```
+
+
+```{r}
+library(Rmagic)
+
+td=t(cd4@data)
+td=as.matrix(td)
+
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21","TBX21","GATA3", "CXCL13" ,"CD200", "IFNG", "TBX21", "TNF")
+mobj=magic(td, genes=g,k=10, t="auto", n.jobs = -2 )
+mgm2=mobj$result
+uem=GetCellEmbeddings(cd4, reduction.type = "umap")
+mgm2=cbind(mgm2, uem)
+mgm2$state= cd4@meta.data$orig.ident
+
+library(ggplot2)
+library(viridis)
+
+A=ggplot(mgm2)+
+  geom_point(aes(UMAP1, UMAP2, color= TBX21))+
+  scale_color_viridis(option = "B")
+
+tfhsig= mgm2[,c(1,2,3,4,6)]
+tfhsig=as.data.frame(t(tfhsig))
+tfhsig= apply(tfhsig, 2, mean)
+
+
+th1sig=as.data.frame(t(mgm2[,c(5,8,9)]))
+
+th1sig= apply(th1sig, 2, mean)
+
+signatures=as.data.frame(cbind(th1sig, tfhsig, mgm2[,10:12]))
+
+A=ggplot(signatures)+
+  geom_point(aes(UMAP1, UMAP2, color= th1sig))+
+  scale_color_viridis(option = "B")
+
+B=ggplot(signatures)+
+  geom_point(aes(UMAP1, UMAP2, color= tfhsig))+
+  scale_color_viridis(option = "B")
+res=ggarrange(A,B, nrow = 1, ncol = 2)
+
+```
+
+FOCUS ON DCs:
+```{r}
+c15= FindMarkers(seurd, ident.1 = 15, ident.2 = NULL, min.pct = 0.15, only.pos = T, min.diff.pct = 0.2, logfc.threshold = 0.3)
+
+dcLow=dc[which(dc$Foldchange < (-2)),]
+length(intersect(dcLow$Gene_symbol, rownames(c15)))
+#check genes their fold change present in dclOW:
+lc15= dcLow[which(dcLow$Gene_symbol %in% rownames(c15)),]
+
+dcHigh=dc[which(dc$Foldchange > (2)),]
+length(intersect(dcHigh$Gene_symbol, rownames(c15)))
+
+hc15= dcHigh[which(dcHigh$Gene_symbol %in% rownames(c15)),]
+```
+
+##THESS GENES ARE SAVED IN FILE : SOME GENES
+
+HLA−DRB6
+CD40
+TNFRSF10B
+HLA−DRB5
+TNFRSF10C
+LGALS3
+TNFRSF21
+SEMA4D
+ITGB1
+TNFSF13
+LY9
+TNFSF12
+TNFRSF10A
+CD48
+TNFSF8
+TNFRSF1A
+TNFRSF12A
+HAVCR2
+ICAM3
+ITGB2
+ENTPD1
+TNFRSF10D
+HLA−DRA
+ITGAL
+TNFSF10
+CD276
+HLA−DRB1
+TNFSF13
+CXCL8
+CCL3
+TGFB2
+IL18
+IL1RN
+IL19
+CCL4
+TGFB1
+IL1B
+TNF
+TNFSF10
+IL16
+```{r}
+somegenes <- read.table("~/Bureau/dcLw.csv", quote="\"", comment.char="")
+intersect(somegenes$V1, rownames(c15))
+intersect(somegenes$V1, dcLow$Gene_symbol)
+```
+
+```{r}
+list(somegenes$V1)
+DC.cluster= AddModuleScore(DC.cluster, genes.list = list(somegenes$V1), enrich.name = "DCLow")
+ VlnPlot(DC.cluster, "DCLow1", group.by = "orig.ident")
+```
+
+DC high practice and Low:
+```{r}
+ high <- read.table("~/Bureau/dcHigh.csv", quote="\"", comment.char="")
+DC.cluster= AddModuleScore(DC.cluster, genes.list = list(high$V1), enrich.name = "DCHigh")
+ VlnPlot(DC.cluster, "DCHigh1", group.by = "orig.ident")
+ 
+ 
+ #take the mediane as threshold:
+DC.cluster@meta.data$DCLstate= ifelse(DC.cluster@meta.data$DCLow1> median(DC.cluster@meta.data$DCLow1), "DCLpos", "DCLneg")
+
+DC.cluster@meta.data$DCHstate= ifelse(DC.cluster@meta.data$DCHigh1> median(DC.cluster@meta.data$DCHigh1), "DCHpos", "DCHneg")
+```
+
+DO DIFFERENTIAL EXPRESSION: EXPOSED VS NAIVE IN DCs:
+```{r}
+DC.cluster=SetIdent(DC.cluster, ident.use = DC.cluster@meta.data$orig.ident)
+
+ivsn=FindMarkers(DC.cluster, ident.1 = "infected", ident.2 = "naive" ,min.pct = 0.15, only.pos = T, min.diff.pct = 0.1, logfc.threshold = 0.2)
+ivsn=ivsn[which(ivsn$p_val_adj< 0.05),]
+intersect(rownames(ivsn), dcHigh$Gene_symbol)
+intersect(rownames(ivsn), dcLow$Gene_symbol)
+```
+
+```{r}
+saveRDS(cd4, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/cd4_Seurat.Rds")
+saveRDS(DC.cluster, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/DC_Seurat.Rds")
+saveRDS(hcase, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/DEG_CaseControl_VIH.Rds")
+ saveRDS(ivsn, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/DEG_DC_INFECTED_NAIVE.Rds")
+ saveRDS(seurd, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/Seurat_Merged_Naive_Infected.Rds")
+ saveRDS(signatures, "~/PROJECTS/PredictingBacterialInfectionUsingscRNAseq/scRNAseq_Infected_NonInfected_Analysis/TH1_TFHsignatures.Rds")
+
+```
+
+
+#############
+```{r}
+library(readxl)
+TB <- read_excel("~/PROJECTS/TB/GSE107991_edgeR_normalized_Berry_London.xlsx")
+TBraw <- read_excel("~/PROJECTS/TB/GSE107991_Raw_counts_Berry_London.xlsx")
+TBraw= GSE107991_Raw_counts_Berry_London
+
+library(FactoMineR)
+gn=make.unique(TB$Gene_name)
+cTB=colnames(TB)
+
+rownames(TB)=make.unique(TB$Gene_name)
+
+tbd=as.data.frame(t(TB[,-c(1,2,3)]), row.names = colnames(TB[,-c(1,2,3)]))
+colnames(tbd)=gn
+
+tbd=tbd[,which(colnames(tbd) %in% TB$Gene_name)]
+
+tbd$sample= c("A", "A", "L","L", "C", "C","A","L", "A","A","L","L","L","L","A","L","A","L","C","A","L","C", "A","C","A","C","A","L","A","L","L","L","L","A","L","A","A","L","L","C","A","C","A","A","A","A","A","L","C","C","L","C","C","L")
+
+res.pca=FactoMineR::PCA(tbd, quali.sup=14145)
+plot(res.pca, habillage=14145)
+
+##keep only CONTROLS AND ACTIVE TB
+dt= tbd[-which(tbd$sample=="C"),]
+
+res.pca=FactoMineR::PCA(dt, quali.sup=14145)
+plot(res.pca, habillage=14151)
+```
+
+
+```{r}
+library(DESeq2)
+ condition= factor(dt$sample)
+
+ annot=data.frame(cbind(rownames(dt), dt$sample))
+colnames(annot)=c("Sample", "Condition")
+#ded: differential expression dataset
+
+ded=dt[,-14145]
+ded=t(ded)
+
+dds <- DESeqDataSetFromMatrix(countData = ded,
+                              colData =annot,
+                              design= ~ Condition)
+
+ 
+ dds$Condition= relevel(dds$Condition, "A")
+dds <- DESeq(dds)
+
+resultsNames(dds) # lists the coefficients
+
+res <- results(dds, name="Condition_L_vs_A")
+
+resOrdered <- res[order(res$pvalue),]
+
+sum(res$padj < 0.05, na.rm=TRUE)#3294
+
+res05 <- results(dds, alpha=0.05)
+
+# or to shrink log fold changes association with condition:
+BiocManager::install("apeglm")
+library(apeglm)
+ress<- lfcShrink(dds, coef="Condition_A_vs_C", type="apeglm")
+```
+```{r}
+resOrdered <- res05[order(res05$pvalue),]
+difexp=as.data.frame(resOrdered)
+#pr=difexp$log2FoldChange * difexp$padj
+
+difexp=difexp[which(difexp$padj <0.05),]
+```
+
+```{r}
+
+dcLow=dc[which(dc$Foldchange < (-2)),]
+ length(intersect(rownames(difexp), dcLow$Gene_symbol)) #662
+
+
+dcHigh=dc[which(dc$Foldchange > (2)),]
+length(intersect(rownames(difexp), dcHigh$Gene_symbol))#472
+
+difpos=difexp[which(difexp$log2FoldChange>1),]
+#####################################################################################
+ length(intersect(rownames(difexp), dcLow$Gene_symbol)) #662
+ 
+  length(intersect(rownames(difexp), dcHigh$Gene_symbol)) #472
+  
+indc=difexp[which(rownames(difexp) %in% dcLow$Gene_symbol),]
+indch= difexp[which(rownames(difexp) %in% dcHigh$Gene_symbol),]
+
+matplot= rbind(indc, indch)
+#add the values expression :
+
+names(condition)=rownames(dt)
+
+tmp1=dt[,which(colnames(dt) %in% rownames(matplot))]
+
+tmp2=as.data.frame(t(tmp1),row.names = colnames(tmp1))
+ 
+matplot$gene=rownames(matplot)
+colnames(tmp2)=condition
+tmp2$gene=rownames(tmp2)
+
+matplot=merge(matplot, tmp2, by="gene")
+
+rownames(matplot)=matplot$gene
+
+matplot$source= ifelse(rownames(matplot) %in% dcHigh$Gene_symbol, "DC_H", "DC_L")
+
+#take the top 114 genes with the highest foldchange:
+tmp3= matplot[which(matplot$log2FoldChange> 0.8),]
+
+dctype=cbind(tmp3$source, tmp3$gene)
+pheatmap(tmp3[,-c(1:7, 41)], scale = "row", annotation_row = dctype, cluster_rows = F)
+
+```
+> matplot$source= ifelse(rownames(matplot) %in% dcHigh$Gene_symbol, "DC_H", "DC_L")
+> #take the top 114 genes with the highest foldchange:
+> tmp3= matplot[which(matplot$log2FoldChange> 2),]
+> table(tmp3$source)
+
+DC_H DC_L 
+   8   13 
+> #take the top 114 genes with the highest foldchange:
+> tmp3= matplot[which(matplot$log2FoldChange> 1.5),]
+> table(tmp3$source)
+
+DC_H DC_L 
+  16   30 
+> dctype=cbind(tmp3$source, tmp3$gene)
+> dctype=as.data.frame(cbind(tmp3$source, tmp3$gene))
+> View(dctype)
+> colnames(dctype)=c("source", "gene")
+> rownames(cdtype)=dctype$gene
+Error in rownames(cdtype) = dctype$gene : objet 'cdtype' introuvable
+> rownames(dctype)=dctype$gene
+> pheatmap(tmp3[,-c(1:7, 41)])
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "row")
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "row", annotation_row = dctype)
+> dctype=as.data.frame(dctype[,-2], row.names = rownames(dctype))
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "row", annotation_row = dctype)
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "column", annotation_row = dctype)
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "row", annotation_row = dctype)
+> pheatmap(tmp3[,-c(1:7, 41)], scale = "row", annotation_row = dctype, cluster_rows = F)`
+
+```{r}
+dt=TBraw[,-c(1,3)]
+rownames(dt)=make.unique(dt$Gene_name)
+
+condition= c("A", "A", "L","L", "C", "C","A","L", "A","A","L","L","L","L","A","L","A","L","C","A","L","C", "A","C","A","C","A","L","A","L","L","L","L","A","L","A","A","L","L","C","A","C","A","A","A","A","A","L","C","C","L","C","C","L")
+
+library(DESeq2)
+ condition= factor(condition)
+dt=dt[,-1]
+ annot=data.frame(cbind(colnames(dt), condition))
+colnames(annot)=c("Sample", "Condition")
+ded=t(dt)
+
+dds <- DESeqDataSetFromMatrix(countData = dt,
+                              colData =annot,
+                              design= ~ Condition)
+ dds$Condition= relevel(dds$Condition, "C")
+dds <- DESeq(dds)
+resultsNames(dds) # lists the coefficients
+norm.data= counts(dds, normalized=T)
+```
+
+
+```{r}
+library(readxl)
+TB <- read_excel("~/PROJECTS/TB/GSE107991_edgeR_normalized_Berry_London.xlsx")
+TBraw <- read_excel("~/PROJECTS/TB/GSE107991_Raw_counts_Berry_London.xlsx")
+TBraw= GSE107991_Raw_counts_Berry_London
+
+library(FactoMineR)
+gn=make.unique(TB$Gene_name)
+cTB=colnames(TB)
+
+rownames(TB)=make.unique(TB$Gene_name)
+
+tbd=as.data.frame(t(TB[,-c(1,2,3)]), row.names = colnames(TB[,-c(1,2,3)]))
+colnames(tbd)=gn
+
+tbd=tbd[,which(colnames(tbd) %in% TB$Gene_name)]
+
+tbd$sample= c("A", "A", "L","L", "C", "C","A","L", "A","A","L","L","L","L","A","L","A","L","C","A","L","C", "A","C","A","C","A","L","A","L","L","L","L","A","L","A","A","L","L","C","A","C","A","A","A","A","A","L","C","C","L","C","C","L")
+
+res.pca=FactoMineR::PCA(tbd, quali.sup=14145)
+plot(res.pca, habillage=14145)
+
+#######################################################################
+rownames(norm.data)=TBraw$Gene_name
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F", "CD3", "CD4") #
+names(g)= c(rep("TFH",5),rep("TFH",5), rep("TH2", 3), rep("TH17", 3))
+
+dcLow=dc[which(dc$Foldchange < (-50)),]
+
+dcHigh=dc[which(dc$Foldchange > (200)),]
+
+length(intersect(dcHigh$Gene_symbol, dcLow$Gene_symbol))
+
+dcl= dcLow$Gene_symbol
+names(dcl)=c(rep("DC_Low",8))
+
+dch= dcHigh$Gene_symbol
+names(dch)=c(rep("DC_High",9))
+
+#get the samples for each gene set:
+mat.dcl= as.data.frame(norm.data[which(rownames(norm.data) %in% dcl),])
+mat.dch= as.data.frame(norm.data[which(rownames(norm.data) %in% dch),])
+
+mat.t= as.data.frame(norm.data[which(rownames(norm.data) %in% g),])
+
+mat.dcl$type= rep("DC_Low", nrow(mat.dcl))
+mat.dch$type= rep("DC_High", nrow(mat.dch))
+ mat.t$type= c("TH1", "TH2", "TH1", rep("TH17", 2), rep("TH2",2), rep("TFH", 2), "TH17", rep("TFH", 3), "TH1")
+ dt.tb= rbind(mat.dcl, mat.dch, mat.t)
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = mean)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,56)]
+ 
+ tsig=as.data.frame(t(signatures))
+tsig$condition= condition
+library(pheatmap)
+
+```
+
+```{r}
+library(reshape2)
+data=melt(tsig)
+library(ggplot2)
+ggplot(data, aes(x= value, fill=variable))+
+  geom_density(alpha=0.5)
+
+ tsiga=tsig[which(tsig$condition=="A"),]
+ tsigc=tsig[which(tsig$condition=="C"),]
+tsigl=tsig[which(tsig$condition=="L"),]
+
+cor.test(tsiga$DC_High, tsiga$TH1)
+pheatmap(cor(tsiga[,-7]))
+
+```
+
+```{r}
+library(corrplot)
+mcor=round(cor(tsigc[,-7]), 2)
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+upper_tri <- get_upper_tri(mcor)
+# Melt the correlation matrix
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation_control") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+
+ writeLines(dcl, "~/Bureau/dclgenes.csv")
+writeLines(dch, "~/Bureau/dchgenes.csv")
+```
+
+
+
+
+step1:
+```{r}
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F", "CD3E", "CD4")
+mat.t= as.data.frame(norm.data[which(rownames(norm.data) %in% g),])
+
+mat.tfh=mat.t[which(rownames(mat.t) %in% c( "PDCD1", "CXCR5","ICOS", "IL21", "CD3E", "CD4")),]
+mat.tfh$type=rep("TFH", nrow(mat.tfh))
+
+mat.th1=mat.t[which(rownames(mat.t) %in% c( "TNF", "IFNG", "TBX21", "CD3E", "CD4")),]
+mat.th1$type=rep("TH1", nrow(mat.th1))
+
+mat.th2=mat.t[which(rownames(mat.t) %in% c( "IL4", "IL5", "GATA3", "CD3E", "CD4")),]
+mat.th2$type=rep("TH2", nrow(mat.th2))
+
+mat.th17=mat.t[which(rownames(mat.t) %in% c( "IL17A", "IL17F", "RORC", "CD3E", "CD4")),]
+mat.th17$type=rep("TH17", nrow(mat.th17))
+
+mat.total=rbind(mat.tfh, mat.th1, mat.th2, mat.th17)
+
+dt.tb= rbind(mat.dcl, mat.dch, mat.total)
+
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = mean)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,56)]
+ 
+ tsig=as.data.frame(t(signatures))
+tsig$condition= condition
+
+tsiga=tsig[which(tsig$condition=="A"),]
+ tsigc=tsig[which(tsig$condition=="C"),]
+tsigl=tsig[which(tsig$condition=="L"),]
+
+plot(tsigl$TFH1,tsigl$DC_Low)
+abline(lm(tsigl$DC_Low ~ tsigl$TFH1))
+
+############################################################
+
+mat.total= rbind(mat.t, mat.t2, mat.t3,mat.t4)
+######################################################
+dt.tb= rbind(mat.dcl, mat.dch, mat.total)
+
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = median)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,56)]
+ 
+ tsig=as.data.frame(t(signatures))
+tsig$condition= condition
+```
+
+STEP2:
+
+```{r}
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F", "CD3E", "CD4") #
+mat.t= as.data.frame(norm.data[which(rownames(norm.data) %in% g),])
+
+mat.tfh=mat.t[which(rownames(mat.t) %in% c("TNF", "IFNG", "TBX21","BCL6", "PDCD1", "CXCR5","ICOS", "IL21", "CD3E", "CD4")),] #
+mat.tfh$type=rep("TFH1", nrow(mat.tfh))
+
+#mat.th1=mat.t[which(rownames(mat.t) %in% c( "TNF", "IFNG", "TBX21", "CD3E", "CD4")),] #
+#mat.th1$type=rep("TH1", nrow(mat.th1))
+
+mat.th2=mat.t[which(rownames(mat.t) %in% c( "BCL6", "PDCD1", "CXCR5","ICOS", "IL21","IL4", "IL5", "GATA3", "CD3E", "CD4")),] #, "CD3E", "CD4"
+mat.th2$type=rep("TFH2", nrow(mat.th2))
+
+mat.th17=mat.t[which(rownames(mat.t) %in% c( "BCL6", "PDCD1", "CXCR5","ICOS", "IL21","IL17A", "IL17F", "RORC", "CD3E", "CD4")),] #, "CD3E", "CD4"
+mat.th17$type=rep("TFH17", nrow(mat.th17))
+
+mat.total=rbind(mat.tfh,  mat.th2, mat.th17) #mat.th1,
+
+dt.tb= rbind(mat.dcl, mat.dch, mat.total)
+
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = median)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,56)]
+ 
+ tsig=as.data.frame(t(signatures))
+tsig$condition= condition
+
+tsiga=tsig[which(tsig$condition=="A"),]
+ tsigc=tsig[which(tsig$condition=="C"),]
+tsigl=tsig[which(tsig$condition=="L"),]
+
+############################################################
+library(ggpmisc)
+my.formula= y~x
+ggplot(tsig, aes(x=DC_Low, y=TFH1, color=condition, shape=condition)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+  
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+library(corrplot)
+mcor=round(cor(tsigcn[,-6]), 2)
+upper_tri <- get_upper_tri(mcor)
+# Melt the correlation matrix
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation_ControlBCG-") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+```
+
+```{r}
+subd=tsig[,c(2:6)]
+
+tsiga=subd[which(subd$condition=="A"),]
+ tsigc=subd[which(subd$condition=="C"),]
+tsigl=subd[which(subd$condition=="L"),]
+
+############################################################
+library(ggpmisc)
+subd2=subd[-which(subd$condition=="L"),]
+
+tmp1=subd2[which(subd2$condition=="A"),-5]
+tmp2=subd2[which(subd2$condition=="C"),-5]
+
+tmp3=melt(tmp1, id="DC_Low")
+tmp4=melt(tmp2, id="DC_Low")
+
+my.formula= y~x
+ggplot(tmp4, aes(x=DC_Low, y=value, color=variable, shape=variable)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+##################################################### 
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+library(corrplot)
+mcor=round(cor(tsigl[,-5]), 2)
+upper_tri <- get_upper_tri(mcor)
+# Melt the correlation matrix
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation_Latent") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+```
+
+```{r}
+cdch= readRDS("~/PROJECTS/TB/differentialExpressionMat_Common_withDCLOW.Rds")
+cdcl=readRDS("~/PROJECTS/TB/differentialExpressionMat_Common_withDCLOW.Rds")
+de=readRDS("~/PROJECTS/TB/differentialExpressionMatrix_ActiveTB_controls.Rds")
+
+de=de[which(de$log2FoldChange>0.5),]
+
+dcLow=dc[which(dc$Foldchange < (-15)),] #-50
+
+dcHigh=dc[which(dc$Foldchange > (50)),]
+
+length(intersect(dcLow$Gene_symbol, rownames(de) ))
+
+dcLow$Gene_symbol
+```
+```{r}
+if (!requireNamespace("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+BiocManager::install(version = "devel")
+BiocManager::valid()
+
+devtools::install_github('LTLA/SingleR')
+```
+
+```{r}
+source("http://bioconductor.org/biocLite.R")
+BiocManager::install("GEOquery")
+library("GEOquery")
+```
+
+get the cell seprated dataset
+```{r}
+separate= getGEO("GSE19443", GSEMatrix = T)
+show(separate)
+# get the information ID of the samples: stored in pData:
+show(pData(phenoData(separate[[1]]))[1:5,c(1,6,8)])
+#convert the gds to expression
+separate.set <- separate$GSE19443_series_matrix.txt.gz
+show(pData(phenoData(separate.set))[1:5,c(1,6,8)])
+#get the metadata:
+separate.metadata= pData(phenoData(separate.set))
+separate.metadata=separate.metadata[,c(1,2,8)]
+#keep only CD4 cells:
+m=grep("CD4", separate.metadata$title, value = T)
+separate.metadata=separate.metadata[which(separate.metadata$title %in% m),]
+
+separate.set= separate.set[,which(colnames(separate.set) %in% separate.metadata$geo_accession)]
+```
+
+```{r}
+#get the annotation GPL: 
+separate.set@annotation
+#get the correspondance with the illumina probes:
+fd=separate.set@featureData@data
+length(intersect(fd$ID, rownames(separate.set)))
+
+#get the expression matrix:
+separate.exp=as.data.frame(exprs(separate.set))
+#separate.p= pData(separate.set)
+
+separate.exp$ID= rownames(separate.exp)
+all(separate.exp$ID==fd$ID)
+saveRDS(separate.exp, "~/PROJECTS/TB/sepraratedDataset2/GSE1943_SEPARATEDCELLTYPES/CD4separatedCellTypeExpressionMatrix.Rds")
+saveRDS(separate.p, "~/PROJECTS/TB/sepraratedDataset2/GSE1943_SEPARATEDCELLTYPES/CD4separatedCellTypePData.Rds")
+
+separate.exp= as.data.frame(apply(separate.exp, 2, FUN = function(x) { as.numeric(as.character(x))}), row.names = rownames(separate.exp))
+separate.exp$Symbol=fd$Symbol
+rownames(separate.exp)= make.unique(separate.exp$Symbol)
+separate.exp=separate.exp[, -c(12,13)]
+
+#change the colnames:
+all(colnames(separate.exp)==separate.metadata$geo_accession)
+separate.metadata$source_name_ch1=gsub("CD4+ cells from","", separate.metadata$source_name_ch1)
+separate.metadata$type=c(rep("Active_TB",4), rep("Contr", 1), rep("Active_TB", 1), rep("Contr", 1), rep("Active_TB", 2), rep("Contr", 2))
+colnames(separate.exp)=separate.metadata$type
+```
+
+```{r}
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F") #, "CD3E", "CD4"
+mat.t= as.data.frame(separate.exp[which(rownames(test.expr) %in% g),])
+
+mat.tfh=mat.t[which(rownames(mat.t) %in% c("TNF", "IFNG", "TBX21","BCL6", "PDCD1", "CXCR5","ICOS", "IL21")),] #, "CD3E", "CD4"
+mat.tfh$type=rep("TFH1", nrow(mat.tfh))
+
+mat.th1=mat.t[which(rownames(mat.t) %in% c( "TNF", "IFNG", "TBX21")),] #
+mat.th1$type=rep("TH1", nrow(mat.th1))
+
+mat.th2=mat.t[which(rownames(mat.t) %in% c( "BCL6", "PDCD1", "CXCR5","ICOS", "IL21","IL4", "IL5", "GATA3")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th2$type=rep("TFH2", nrow(mat.th2))
+
+mat.th17=mat.t[which(rownames(mat.t) %in% c("BCL6", "PDCD1", "CXCR5","ICOS", "IL21", "IL17A", "IL17F", "RORC")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th17$type=rep("TFH17", nrow(mat.th17))
+
+mat.tfh1=mat.t[which(rownames(mat.t) %in% c("BCL6", "PDCD1", "CXCR5","ICOS", "IL21","TNF", "IFNG", "TBX21")),] #, "CD3E", "CD4"
+mat.tfh1$type=rep("TFH1", nrow(mat.tfh1))
+
+mat.total=rbind(mat.tfh,  mat.th2, mat.th17) #mat.th1,
+mat.total[, -12]=as.data.frame( apply(mat.total, 2, FUN = function(x){ as.numeric(as.character(x))}), row.names = rownames(mat.total))
+pheatmap(mat.total[, -12])
+
+
+signatures= aggregate(mat.total, by=list(mat.total$type), FUN = median)
+ 
+rownames(signatures)=signatures$Group.1
+ 
+signatures=signatures[,-c(1,13)]
+ 
+ tsig=as.data.frame(t(signatures))
+
+ tsig$condition= separate.metadata$type
+
+tsiga=tsig[which(tsig$condition=="Active_TB"),]
+ tsigc=tsig[which(tsig$condition=="Contr"),]
+```
+
+
+
+```{r}
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+library(corrplot)
+mcor=round(cor(tsiga[,-6]), 2)
+upper_tri <- get_upper_tri(mcor)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+A=ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationControl") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+B=ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationActive") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+figg=ggarrange(A,B, ncol = 2, nrow = 1)
+```
+```{r}
+#[,c(1,4)]
+dm=reshape2::melt(tsig)
+library(ggpubr)
+comp=list(c("Active_TB", "Contr"))
+ggboxplot(dm, x = "condition", y = "value", color="variable") + 
+  #scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  theme_minimal() + ggtitle("Distribution of TH scores")+
+  stat_compare_means(comparisons = comp)+ stat_compare_means(label.y = 10)
+```
+
+
+WOTK WITH THE TRAINING SET: GSE19439: 42 samples
+```{r}
+library(GEOquery)
+train=getGEO("GSE19439", GSEMatrix = T)
+tr.expr=as.data.frame(exprs(train$GSE19439_series_matrix.txt.gz))
+pdat.tr= pData(train$GSE19439_series_matrix.txt.gz)
+#the GPL:
+train[["GSE19439_series_matrix.txt.gz"]]@annotation
+
+#get the correspondance with the illumina probes:
+aff=train[["GSE19439_series_matrix.txt.gz"]]@featureData@data
+length(intersect(aff$ID, rownames(tr.expr)))
+all(aff$ID==rownames(tr.expr))
+tr.expr$ID=aff$ID
+tr.expr$Symbol=aff$Symbol
+rownames(tr.expr)=make.unique(tr.expr$Symbol)
+
+#add the correspondng names and replace the GSM IDs:
+all(colnames(tr.expr)==pdat.tr$geo_accession)
+tr.expr=tr.expr[,-c(43,44)]
+colnames(tr.expr)= pdat.tr$`illness:ch1`
+#tr.expr ready to be used:
+```
+
+CHECK THE T AND DC SIGNATURES
+```{r}
+dcLow=dc[which(dc$Foldchange < (-50)),]
+
+dcHigh=dc[which(dc$Foldchange > (200)),]
+
+dcl= dcLow$Gene_symbol
+ names(dcl)=c(rep("DC_Low",8))
+
+ dch= dcHigh$Gene_symbol
+ names(dch)=c(rep("DC_High",9))
+
+#get the samples for each gene set:
+mat.dcl= as.data.frame(tr.expr[which(rownames(tr.expr) %in% dcl),])#separate.exp
+mat.dch= as.data.frame(tr.expr[which(rownames(tr.expr) %in% dch),])
+```
+
+```{r}
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F", "CD3E", "CD4") #, "CD3E", "CD4"
+mat.t= as.data.frame(tr.expr[which(rownames(tr.expr) %in% g),])
+
+mat.tfh=mat.t[which(rownames(mat.t) %in% c("TNF", "IFNG", "TBX21","BCL6", "PDCD1", "CXCR5","ICOS", "IL21")),] #, "CD3E", "CD4"
+mat.tfh$type=rep("TFH", nrow(mat.tfh))
+
+mat.th1=mat.t[which(rownames(mat.t) %in% c( "TNF", "IFNG", "TBX21", "CD3E", "CD4")),] #
+mat.th1$type=rep("TH1", nrow(mat.th1))
+
+mat.th2=mat.t[which(rownames(mat.t) %in% c("IL4", "IL5", "GATA3")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th2$type=rep("TH2", nrow(mat.th2))
+
+
+mat.th17=mat.t[which(rownames(mat.t) %in% c("IL17A", "IL17F", "RORC")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th17$type=rep("TH17", nrow(mat.th17))
+
+mat.total=rbind(mat.tfh,  mat.th1,mat.th2, mat.th17) #mat.th1,
+```
+
+
+ADD THE DC LOW:
+```{r}
+mat.dcl$type=rep("DC_Low",nrow(mat.dcl))
+mat.dch$type=rep("DC_High",nrow(mat.dch))
+dt.tb= rbind(mat.dcl, mat.dch, mat.total)
+
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = median)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,44)]
+ 
+  tsig=as.data.frame(t(signatures))
+
+ tsig$condition=pdat.tr$`illness:ch1`
+ #pheatmap(tsig[order(tsig$TFH1, decreasing = T), -7], annotation_row = an, cluster_rows = F, scale = "column")
+#############################################
+```
+We have previously confirmed that the signature is high for TFH1 , NOW we need to find a correlation with DCLOW
+check for the plots:
+
+```{r}
+tsiga=tsig[which(tsig$condition=="PTB"),]
+ tsigc=tsig[which(tsig$condition %in% c("Control (BCG-)","Control (BCG+)")),]
+tsigl=tsig[which(tsig$condition=="Latent"),]
+```
+
+```{r}
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+library(corrplot)
+mcor=round(cor(tsigc[,-6]), 2)
+upper_tri <- get_upper_tri(mcor)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationContr") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+```
+
+
+```{r}
+al= tsig[which(tsig$condition %in% c( "PTB" )),]
+cl=tsig[which(tsig$condition %in% c("Control (BCG+)", "Control (BCG-)")),]
+
+mal=melt(tsigc[,-c(1,6)], id="DC_Low")
+my.formula= y~x
+
+A=ggplot(mal, aes(x=DC_Low, y=value, col=variable)) + #, col=variable
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+#ml=melt(tsiga[,-6], id="DC_Low")
+B=ggplot(tsigc, aes(x=TFH1, y=DC_High)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+#cl=melt(tsigc[,-6], id="DC_Low")
+C=ggplot(tsigc, aes(x=DC_Low, y=DC_High)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+fig=ggarrange(A,B,C, ncol = 3, nrow = 1)
+```
+
+################################
+
+WOTK WITH THE TEST SET
+```{r}
+test=getGEO("GSE19444", GSEMatrix = T)
+test.expr=as.data.frame(exprs(test$GSE19444_series_matrix.txt.gz))
+pdat.tr= pData(test$GSE19444_series_matrix.txt.gz)
+#the GPL:
+test[["GSE19444_series_matrix.txt.gz"]]@annotation
+
+#get the correspondance with the illumina probes:
+aff=test[["GSE19444_series_matrix.txt.gz"]]@featureData@data
+length(intersect(aff$ID, rownames(test.expr)))
+all(aff$ID==rownames(test.expr))
+#test.expr$ID=aff$ID
+test.expr$Symbol=aff$Symbol
+rownames(test.expr)=make.unique(test.expr$Symbol)
+
+#add the correspondng names and replace the GSM IDs:
+all(colnames(test.expr[,-55])==pdat.tr$geo_accession)
+test.expr=test.expr[,-55]
+colnames(test.expr)= pdat.tr$`illness:ch1`
+#tr.expr ready to be used:
+```
+
+CHECK THE T AND DC SIGNATURES
+```{r}
+dcLow=dc[which(dc$Foldchange < (-50)),]
+
+dcHigh=dc[which(dc$Foldchange > (200)),]
+
+dcl= dcLow$Gene_symbol
+ names(dcl)=c(rep("DC_Low",8))
+
+ dch= dcHigh$Gene_symbol
+ names(dch)=c(rep("DC_High",9))
+
+#get the samples for each gene set:
+mat.dcl= as.data.frame(test.expr[which(rownames(test.expr) %in% dcl),])#separate.exp
+mat.dch= as.data.frame(test.expr[which(rownames(test.expr) %in% dch),])
+```
+
+```{r}
+g= c("BCL6","PDCD1", "CXCR5","ICOS","IL21", "TBX21", "IFNG","TNF","GATA3","IL4","IL5","RORC","IL17A" , "IL17F", "CD3E", "CD4") #, "CD3E", "CD4"
+mat.t= as.data.frame(test.expr[which(rownames(test.expr) %in% g),])
+
+mat.tfh=mat.t[which(rownames(mat.t) %in% c("TNF", "IFNG", "TBX21","BCL6", "PDCD1", "CXCR5","ICOS", "IL21")),] #, "CD3E", "CD4"
+mat.tfh$type=rep("TFH1", nrow(mat.tfh))
+
+mat.th1=mat.t[which(rownames(mat.t) %in% c( "TNF", "IFNG", "TBX21")),] #
+mat.th1$type=rep("TH1", nrow(mat.th1))
+
+mat.th2=mat.t[which(rownames(mat.t) %in% c( "IL4", "IL5", "GATA3")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th2$type=rep("TH2", nrow(mat.th2))
+
+mat.th17=mat.t[which(rownames(mat.t) %in% c("IL17A", "IL17F", "RORC")),] #, "CD3E", "CD4","BCL6", "PDCD1", "CXCR5","ICOS", "IL21",
+mat.th17$type=rep("TH17", nrow(mat.th17))
+
+mat.total=rbind(mat.tfh,  mat.th2, mat.th17, mat.th1) #mat.th1,
+```
+
+
+ADD THE DC LOW:
+```{r}
+mat.dcl$type=rep("DC_Low",nrow(mat.dcl))
+mat.dch$type=rep("DC_High",nrow(mat.dch))
+dt.tb= rbind(mat.dcl, mat.dch, mat.total)
+
+ signatures= aggregate(dt.tb, by=list(dt.tb$type), FUN = median)
+ rownames(signatures)=signatures$Group.1
+ signatures=signatures[,-c(1,56)]
+ 
+  tsig=as.data.frame(t(signatures))
+
+ tsig$condition=pdat.tr$`illness:ch1`
+ #pheatmap(tsig[order(tsig$TFH1, decreasing = T), -7], annotation_row = an, cluster_rows = F, scale = "column")
+#############################################
+```
+We have previously confirmed that the signature is high for TFH1 , NOW we need to find a correlation with DCLOW
+check for the plots:
+
+```{r}
+tsiga=tsig[which(tsig$condition=="PTB"),]
+ tsigc=tsig[which(tsig$condition %in% c("Control (BCG+)")),]
+tsigl=tsig[which(tsig$condition=="Latent"),]
+```
+
+```{r}
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)}
+
+library(corrplot)
+mcor=round(cor(tsigl[,-7]), 2)
+upper_tri <- get_upper_tri(mcor)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+A=ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationControl") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+B=ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationActive") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+C=ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelationLatent") +
+  theme_minimal()+ # minimal theme
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+
+fig=ggarrange(A,B,C, ncol = 3)
+```
+
+
+```{r}
+al= tsig[which(tsig$condition %in% c( "PTB" )),]
+cl=tsig[which(tsig$condition %in% c("Control (BCG+)", "Control (BCG-)")),]
+
+mal=melt(tsigc[,-c(1,6)], id="DC_Low")
+my.formula= y~x
+
+A=ggplot(mal, aes(x=DC_Low, y=value, col=variable)) + #, col=variable
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+#ml=melt(tsiga[,-6], id="DC_Low")
+B=ggplot(tsiga, aes(x=TFH1, y=DC_High)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+#cl=melt(tsigc[,-6], id="DC_Low")
+C=ggplot(tsigc, aes(x=DC_Low, y=DC_High)) +
+  geom_point() + 
+  geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+
+  #stat_regline_equation(label.x = 30, label.y = 800)+
+stat_poly_eq(formula = my.formula, aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), parse = TRUE)
+
+fig=ggarrange(A,B,C, ncol = 3, nrow = 1)
+```
+
+for the training set, convert all controls to controls without BCG information:
+```{r}
+library(thatssorandom)
+tsig$state= ie( i( tsig$condition=="Latent", "Latent"),
+                i( tsig$condition== "Control (BCG+)", "Control"),
+                i( tsig$condition=="Control (BCG-)", "Control"),
+                e("Active"))
+
+A=ggboxplot(tsig, x= 'state', y= "TFH", color="state")+ stat_compare_means()
+D=ggboxplot(tsig, x="state", y="TH1", color = "state")+ stat_compare_means()
+B= ggboxplot(tsig, x="state", y="TH2", color = "state") +stat_compare_means()
+C= ggboxplot(tsig, x="state", y="TH17", color= "state") +stat_compare_means()
+f=ggarrange(A,D,B,C, ncol = 4, nrow = 1)
+```
+
+
