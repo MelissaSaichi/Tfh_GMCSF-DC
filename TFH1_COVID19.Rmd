@@ -693,8 +693,21 @@ cdc=readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/CDC.Rds
 tcd4=readRDS("/Users/equipe.soumelis/Desktop/COVID-19_TFH1/Analysis_19nov/TCD4.Rds")
 ```
 
-calculate the percentages:
+ADD EXPR CONDITION:
 ```{r}
-
+COVID_merged$condition = 
+  ifelse(COVID_merged$orig.ident== ""  | COVID_merged$orig.ident== ""| COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== "", "EDTA", "RPMI")
 ```
+
+when annotating do not forget to respec t the same nomenclature
+```{r}
+COVID_merged$severity = 
+  
+  ifelse(COVID_merged$orig.ident== ""  | COVID_merged$orig.ident== ""| COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== "" | COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== "", "Severe",
+         
+   ifelse( COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== ""| COVID_merged$orig.ident== "", "Healthy", "Moderate"))
+```
+
+
+
 
